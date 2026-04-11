@@ -3,9 +3,11 @@
 import { useEffect } from 'react';
 
 const THEMES: Record<string, { primary: string; secondary: string; accent: string }> = {
-  ocean:   { primary: '#0061a3', secondary: '#4da8ff', accent: '#6EE7FF' },
-  aqua:    { primary: '#008575', secondary: '#b3f0e0', accent: '#2ab3ca' },
-  violet:  { primary: '#6750a4', secondary: '#eaddff', accent: '#21005d' },
+  ocean:   { primary: '#0ea5e9', secondary: '#a855f7', accent: '#ec4899' },
+  violet:  { primary: '#8b5cf6', secondary: '#6366f1', accent: '#a855f7' },
+  rose:    { primary: '#e11d48', secondary: '#f43f5e', accent: '#fb7185' },
+  emerald: { primary: '#10b981', secondary: '#059669', accent: '#34d399' },
+  amber:   { primary: '#f59e0b', secondary: '#d97706', accent: '#fbbf24' },
 };
 
 /**
@@ -17,10 +19,15 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
     // Apply saved theme on first load
     applyTheme(localStorage.getItem('smilesync_theme') || 'ocean');
     
-    // Force Light Mode - The strategy is strictly High-Key
-    document.documentElement.removeAttribute('data-theme');
-    document.body.classList.remove('dark');
-    localStorage.setItem('smilesync_dark', 'false');
+    // Check and apply Dark Mode preference
+    const isDark = localStorage.getItem('smilesync_dark') === 'true';
+    if (isDark) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.body.classList.add('dark');
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      document.body.classList.remove('dark');
+    }
 
     // Listen for live theme changes
     const themeHandler = (e: Event) => {
@@ -28,11 +35,16 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       applyTheme(themeId);
     };
     
-    // Listen for live dark mode changes - Ignore them to maintain high-key
-    const darkHandler = () => {
-      console.log("Dark mode is disabled by Liquid Crystal Strategy.");
-      document.documentElement.removeAttribute('data-theme');
-      document.body.classList.remove('dark');
+    // Listen for live dark mode changes
+    const darkHandler = (e: Event) => {
+      const isDarkNow = (e as CustomEvent<boolean>).detail;
+      if (isDarkNow) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        document.body.classList.add('dark');
+      } else {
+        document.documentElement.removeAttribute('data-theme');
+        document.body.classList.remove('dark');
+      }
     };
 
     window.addEventListener('smilesync:theme-change', themeHandler);
