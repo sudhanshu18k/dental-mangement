@@ -31,9 +31,11 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Sync with Firestore when logged in
   useEffect(() => {
     if (!userId) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setPatients([]);
       setAppointments([]);
       setInvoices([]);
+      /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
 

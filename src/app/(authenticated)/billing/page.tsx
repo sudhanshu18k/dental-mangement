@@ -6,6 +6,7 @@ import { IndianRupee, FileDown, Plus, X, Receipt } from 'lucide-react';
 import { Invoice } from '@/types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import QRCode from 'qrcode';
 
 export default function BillingPage() {
   const { patients, appointments, invoices, addInvoice, updateInvoice } = useStore();
@@ -47,76 +48,241 @@ export default function BillingPage() {
     setTax(18);
   };
 
-  const handleDownloadPDF = (inv: Invoice) => {
+  const handleDownloadPDF = async (inv: Invoice) => {
     const patient = patients.find(p => p.id === inv.patientId);
     const appt = appointments.find(a => a.id === inv.appointmentId);
     
     const doc = new jsPDF();
-    doc.setFontSize(22);
-    doc.setTextColor(14, 165, 233); // Primary theme color
-    doc.text('SmileSync', 14, 22);
-    doc.setFontSize(14);
+    
+    // ======== HEADER ========
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.setTextColor(14, 165, 233);
+    doc.text('SmileSync', 14, 25);
+    
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
-    doc.text('INVOICE', 14, 30);
+    doc.text('Dental Care & Aesthetics', 15, 31);
+    
+    doc.setFontSize(9);
+    doc.setTextColor(71, 85, 105);
+    doc.text('123 Healthcare Avenue', 195, 20, { align: 'right' });
+    doc.text('Medical District, City Center', 195, 25, { align: 'right' });
+    doc.text('Phone: +91 98765 43210', 195, 30, { align: 'right' });
+    doc.text('Email: hello@smilesync.clinic', 195, 35, { align: 'right' });
+
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(14, 40, 195, 40);
+
+    // ======== INVOICE TITLE & DETAILS ========
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.setTextColor(15, 23, 42);
+    doc.text('INVOICE', 14, 52);
     
     doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    
+    doc.setFont("helvetica", "bold");
+    doc.text('Invoice No:', 120, 50);
+    doc.setFont("helvetica", "normal");
+    doc.text(`#INV-${inv.id.slice(-6).toUpperCase()}`, 155, 50);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text('Date:', 120, 56);
+    doc.setFont("helvetica", "normal");
+    doc.text(new Date(inv.date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' }), 155, 56);
+    
+    doc.setFont("helvetica", "bold");
+    doc.text('Status:', 120, 62);
+    doc.setFont("helvetica", "bold");
+    const statusColor = inv.status === 'Paid' ? [16, 185, 129] : [245, 158, 11];
+    doc.setTextColor(statusColor[0], statusColor[1], statusColor[2]);
+    doc.text(inv.status.toUpperCase(), 155, 62);
+
+    // ======== BILL TO SECTION ========
     doc.setTextColor(15, 23, 42);
-    doc.text(`Invoice #: ${inv.id.slice(-6).toUpperCase()}`, 150, 22);
-    doc.text(`Date: ${inv.date}`, 150, 28);
-    doc.text(`Status: ${inv.status.toUpperCase()}`, 150, 34);
-
+    doc.setFont("helvetica", "bold");
+    doc.text('Bill To:', 14, 65);
+    
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(11);
-    doc.text('Bill To:', 14, 45);
+    doc.text(patient?.name || 'Unknown Patient', 14, 71);
     doc.setFontSize(10);
-    doc.text(`Patient: ${patient?.name || 'Unknown'}`, 14, 52);
-    if (patient?.phone) doc.text(`Phone: ${patient.phone}`, 14, 58);
-    if (appt?.date) doc.text(`Treatment Date: ${appt.date}`, 14, 64);
+    doc.setTextColor(71, 85, 105);
+    if (patient?.phone) doc.text(`Phone: ${patient.phone}`, 14, 76);
+    if (patient?.email) doc.text(`Email: ${patient.email}`, 14, 81);
+    if (appt?.date) {
+        let displayDate = appt.date;
+        try {
+            displayDate = new Date(appt.date).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' });
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        } catch(e) { /* keep original */ }
+        doc.text(`Treatment Date: ${displayDate}`, 14, 86);
+    }
 
-    const tableData = appt?.treatments.map(t => [
+    // ======== ITEMS TABLE ========
+    const tableData = appt?.treatments.map((t, index) => [
+      index + 1,
       `Tooth #${t.toothNumber} - ${t.notes}`, 
-      `₹ ${t.cost.toLocaleString()}`
-    ]) || [['Treatments', `₹ ${inv.treatmentCost.toLocaleString()}`]];
+      `₹${t.cost.toLocaleString('en-IN')}`
+    ]) || [[1, 'General Dental Treatment', `₹${inv.treatmentCost.toLocaleString('en-IN')}`]];
 
-    tableData.push(['Subtotal', `₹ ${inv.treatmentCost.toLocaleString()}`]);
+    autoTable(doc, {
+      startY: 95,
+      head: [['#', 'Description of Services', 'Amount']],
+      body: tableData,
+      theme: 'grid',
+      headStyles: { 
+        fillColor: [14, 165, 233], 
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'left'
+      },
+      columnStyles: { 
+        0: { cellWidth: 15, halign: 'center' },
+        1: { halign: 'left' },
+        2: { cellWidth: 40, halign: 'right' } 
+      },
+      styles: { 
+        font: 'helvetica',
+        fontSize: 10, 
+        cellPadding: 6,
+        lineColor: [226, 232, 240]
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      }
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const finalY = (doc as any).lastAutoTable.finalY + 10;
+    
+    // ======== TOTALS SECTION ========
+    // Left side notes
+    doc.setFontSize(9);
+    doc.setTextColor(148, 163, 184);
+    doc.text('Thank you for choosing SmileSync Dental Care.', 14, finalY + 5);
+    doc.text('Please feel free to contact us for any queries regarding this invoice.', 14, finalY + 10);
+
+    // Right side amounts
+    doc.setFontSize(10);
+    doc.setTextColor(15, 23, 42);
+    
+    let currentY = finalY;
+    
+    doc.text('Subtotal:', 135, currentY);
+    doc.text(`₹${inv.treatmentCost.toLocaleString('en-IN')}`, 195, currentY, { align: 'right' });
+    currentY += 8;
     
     if (inv.discount > 0) {
       const discountAmount = (inv.treatmentCost * inv.discount) / 100;
-      tableData.push([`Discount (${inv.discount}%)`, `- ₹ ${discountAmount.toFixed(2)}`]);
+      doc.text(`Discount (${inv.discount}%):`, 135, currentY);
+      doc.setTextColor(16, 185, 129);
+      doc.text(`- ₹${discountAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 195, currentY, { align: 'right' });
+      doc.setTextColor(15, 23, 42);
+      currentY += 8;
     }
     
     if (inv.tax > 0) {
       const taxableAmount = inv.treatmentCost - ((inv.treatmentCost * inv.discount) / 100);
       const taxAmount = (taxableAmount * inv.tax) / 100;
-      tableData.push([`Tax (${inv.tax}%)`, `+ ₹ ${taxAmount.toFixed(2)}`]);
+      doc.text(`Taxes (${inv.tax}%):`, 135, currentY);
+      doc.text(`+ ₹${taxAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 195, currentY, { align: 'right' });
+      currentY += 8;
     }
     
-    autoTable(doc, {
-      startY: 75,
-      head: [['Description', 'Amount']],
-      body: tableData,
-      theme: 'grid',
-      headStyles: { fillColor: [14, 165, 233], textColor: [255, 255, 255] },
-      styles: { fontSize: 10, cellPadding: 6 },
-      columnStyles: { 1: { halign: 'right' } }
-    });
+    // Final Amount Highlight Box
+    currentY += 2;
+    doc.setFillColor(14, 165, 233);
+    doc.rect(130, currentY, 65, 12, 'F');
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12);
+    doc.setTextColor(255, 255, 255);
+    doc.text('Total:', 135, currentY + 8);
+    doc.text(`₹${inv.finalAmount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 190, currentY + 8, { align: 'right' });
+    
+    // ======== UPI QR CODE PAYMENT SECTION ========
+    currentY += 22;
+    
+    // UPI payment string - replace 'merchant@upi' with your real UPI ID
+    const upiId = 'smilesync@upi';
+    const upiName = 'SmileSync Dental';
+    const upiAmount = inv.finalAmount.toFixed(2);
+    const upiTxnNote = `Invoice INV-${inv.id.slice(-6).toUpperCase()}`;
+    const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${upiAmount}&cu=INR&tn=${encodeURIComponent(upiTxnNote)}`;
 
-    const finalY = (doc as any).lastAutoTable.finalY || 80;
+    try {
+      // Generate QR code as data URL
+      const qrDataUrl = await QRCode.toDataURL(upiUrl, {
+        width: 200,
+        margin: 1,
+        color: { dark: '#0f172a', light: '#ffffff' },
+        errorCorrectionLevel: 'M',
+      });
+
+      // QR Code Section Background
+      const qrBoxY = currentY;
+      doc.setFillColor(248, 250, 252); // Slate 50
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(14, qrBoxY, 85, 72, 3, 3, 'FD');
+      
+      // UPI Logo area
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Scan to Pay', 56.5, qrBoxY + 8, { align: 'center' });
+      
+      // QR Code Image
+      doc.addImage(qrDataUrl, 'PNG', 32, qrBoxY + 12, 48, 48);
+      
+      // UPI ID text below QR
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`UPI: ${upiId}`, 56.5, qrBoxY + 66, { align: 'center' });
+      
+      // Payment instructions on the right of QR
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(71, 85, 105);
+      const instructionX = 108;
+      doc.text('Payment Instructions:', instructionX, qrBoxY + 10);
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text('1. Open any UPI app (Google Pay, PhonePe,', instructionX, qrBoxY + 18);
+      doc.text('   Paytm, BHIM, etc.)', instructionX, qrBoxY + 23);
+      doc.text('2. Scan the QR code on the left', instructionX, qrBoxY + 31);
+      doc.text('3. Verify the amount and merchant name', instructionX, qrBoxY + 39);
+      doc.text('4. Complete the payment', instructionX, qrBoxY + 47);
+      
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('For any payment issues, contact us at:', instructionX, qrBoxY + 57);
+      doc.text('+91 98765 43210 | hello@smilesync.clinic', instructionX, qrBoxY + 62);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (err) {
+      // QR generation failed - add fallback text
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Pay via UPI: ${upiId}`, 14, currentY + 5);
+      doc.text(`Amount: ₹${inv.finalAmount.toLocaleString('en-IN')}`, 14, currentY + 11);
+    }
     
-    // Total Amount highlight box
-    doc.setFillColor(241, 245, 249);
-    doc.rect(120, finalY + 8, 76, 16, 'F');
-    doc.setFontSize(14);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Total:', 125, finalY + 19);
-    doc.setTextColor(14, 165, 233);
-    doc.text(`₹ ${inv.finalAmount.toLocaleString()}`, 190, finalY + 19, { align: 'right' });
-    
-    // Footer
+    // ======== FOOTER ========
     doc.setFontSize(9);
+    doc.setFont("helvetica", "normal");
     doc.setTextColor(148, 163, 184);
-    doc.text('Generated by SmileSync - Owner Edition', 105, 280, { align: 'center' });
+    doc.setLineWidth(0.5);
+    doc.setDrawColor(226, 232, 240);
+    doc.line(14, 280, 195, 280);
+    doc.text('SmileSync Dental Care Management - Owner Edition', 105, 287, { align: 'center' });
 
-    doc.save(`SmileSync_Invoice_${inv.id.slice(-6)}.pdf`);
+    doc.save(`SmileSync_Invoice_${inv.id.slice(-6).toUpperCase()}.pdf`);
   };
 
   // Summary stats

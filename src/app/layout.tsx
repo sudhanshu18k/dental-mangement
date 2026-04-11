@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { ClerkProvider, SignInButton, SignUpButton, Show, UserButton } from '@clerk/nextjs';
+import { ClerkProvider, SignInButton, SignUpButton, Show } from '@clerk/nextjs';
 import './globals.css';
 import { StoreProvider } from '@/store';
 
@@ -11,17 +11,18 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className="animate-fade-in">
         <ClerkProvider>
-          <header style={{ padding: '1rem', display: 'flex', gap: '1rem', justifyContent: 'flex-end', background: 'rgba(255,255,255,0.1)' }}>
+          <div className="auth-overlay-header">
             <Show when="signed-out">
-              <SignInButton />
-              <SignUpButton />
+              <SignInButton mode="modal">
+                <button className="btn btn-primary btn-sm">Sign In</button>
+              </SignInButton>
+              <SignUpButton mode="modal">
+                <button className="btn btn-secondary btn-sm">Register</button>
+              </SignUpButton>
             </Show>
-            <Show when="signed-in">
-              <UserButton />
-            </Show>
-          </header>
+          </div>
           <StoreProvider>
             {children}
           </StoreProvider>

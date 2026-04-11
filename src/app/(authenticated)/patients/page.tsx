@@ -1,12 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useStore } from '@/store';
-import { Search, UserPlus, Edit2, Trash2, FileText, X, Phone, Mail } from 'lucide-react';
+import { Search, UserPlus, Edit2, Trash2, FileText, X, Phone, Mail, CalendarDays, IndianRupee, Clock, Stethoscope, TrendingUp, AlertCircle, ArrowRight, ExternalLink } from 'lucide-react';
 import { Patient } from '@/types';
+import ToothChart from '@/components/ToothChart';
 
 export default function PatientsPage() {
-  const { patients, addPatient, updatePatient, deletePatient, appointments } = useStore();
+  const { patients, addPatient, updatePatient, deletePatient, appointments, invoices } = useStore();
+  const router = useRouter();
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [current, setCurrent] = useState<Partial<Patient>>({});
@@ -30,8 +33,53 @@ export default function PatientsPage() {
     closeModal();
   };
 
-  const patientHistory = appointments.filter(a => a.patientId === historyId);
   const historyPatient = patients.find(p => p.id === historyId);
+
+  // Enriched history data sorted by date descending
+  const patientHistory = useMemo(() => {
+    if (!historyId) return [];
+    return [...appointments.filter(a => a.patientId === historyId)]
+      .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
+  }, [historyId, appointments]);
+
+  // Patient summary stats
+  const patientStats = useMemo(() => {
+    if (!historyId) return { totalVisits: 0, completedVisits: 0, totalSpent: 0, totalTreatments: 0, lastVisit: null as string | null, upcomingFollowUps: 0 };
+    const patientAppts = appointments.filter(a => a.patientId === historyId);
+    const completedAppts = patientAppts.filter(a => a.status === 'Completed');
+    const allTreatments = patientAppts.flatMap(a => a.treatments || []);
+    const totalSpent = allTreatments.reduce((sum, t) => sum + (t.cost || 0), 0);
+    const sortedDates = patientAppts.map(a => a.date).sort((a, b) => b.localeCompare(a));
+    const today = new Date().toISOString().split('T')[0];
+    const upcomingFollowUps = allTreatments.filter(t => t.followUpDate && t.followUpDate >= today).length;
+
+    return {
+      totalVisits: patientAppts.length,
+      completedVisits: completedAppts.length,
+      totalSpent,
+      totalTreatments: allTreatments.length,
+      lastVisit: sortedDates[0] || null,
+      upcomingFollowUps,
+    };
+  }, [historyId, appointments]);
+
+  // Patient invoices
+  const patientInvoices = useMemo(() => {
+    if (!historyId) return [];
+    return invoices.filter(i => i.patientId === historyId);
+  }, [historyId, invoices]);
+
+  const totalBilled = patientInvoices.reduce((sum, i) => sum + i.finalAmount, 0);
+  const totalPaid = patientInvoices.filter(i => i.status === 'Paid').reduce((sum, i) => sum + i.finalAmount, 0);
+
+  // Format date nicely
+  const formatDate = (dateStr: string) => {
+    try {
+      return new Date(dateStr).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch {
+      return dateStr;
+    }
+  };
 
   return (
     <div>
@@ -80,7 +128,14 @@ export default function PatientsPage() {
                 filtered.map(p => (
                   <tr key={p.id}>
                     <td>
-                      <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>{p.name}</div>
+                      <div
+                        style={{ fontWeight: 600, color: 'var(--primary)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                        onClick={() => router.push(`/patients/${p.id}`)}
+                        title="View Profile"
+                      >
+                        {p.name}
+                        <ExternalLink size={12} style={{ opacity: 0.5 }} />
+                      </div>
                     </td>
                     <td>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.88rem' }}><Phone size={13} /> {p.phone}</div>
@@ -91,6 +146,7 @@ export default function PatientsPage() {
                     <td><span className={p.allergies && p.allergies !== 'None' ? 'badge badge-warning' : 'badge badge-success'}>{p.allergies || 'None'}</span></td>
                     <td>
                       <div style={{ display: 'flex', gap: '0.4rem' }}>
+                        <button className="btn btn-icon" title="View Profile" style={{ color: 'var(--primary)' }} onClick={() => router.push(`/patients/${p.id}`)}><ExternalLink size={16} /></button>
                         <button className="btn btn-icon" title="History" onClick={() => setHistoryId(p.id)}><FileText size={16} /></button>
                         <button className="btn btn-icon" style={{ color: 'var(--warning)' }} title="Edit" onClick={() => openEdit(p)}><Edit2 size={16} /></button>
                         <button className="btn btn-icon btn-danger" title="Delete" onClick={() => { if(confirm('Delete this patient?')) deletePatient(p.id); }}><Trash2 size={16} /></button>
@@ -161,43 +217,197 @@ export default function PatientsPage() {
         </div>
       )}
 
-      {/* History Modal */}
+      {/* ═══════════════════════════════════════
+         DETAILED TREATMENT HISTORY MODAL
+         ═══════════════════════════════════════ */}
       {historyId && (
         <div className="modal-overlay" onClick={() => setHistoryId(null)}>
-          <div className="modal-content" style={{ width: '700px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal-content history-modal" onClick={e => e.stopPropagation()}>
+            {/* Header with patient info */}
             <div className="modal-header">
-              <h2 className="modal-title">{historyPatient?.name}&apos;s Treatment History</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div className="history-avatar">
+                  {historyPatient?.name?.charAt(0).toUpperCase() || '?'}
+                </div>
+                <div>
+                  <h2 className="modal-title" style={{ marginBottom: '0.15rem' }}>
+                    {historyPatient?.name}&apos;s Treatment History
+                  </h2>
+                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                    {historyPatient?.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Phone size={12} /> {historyPatient.phone}</span>}
+                    {historyPatient?.email && <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Mail size={12} /> {historyPatient.email}</span>}
+                  </div>
+                </div>
+              </div>
               <button className="btn btn-icon" onClick={() => setHistoryId(null)}><X size={20} /></button>
             </div>
-            {patientHistory.length === 0 ? (
-              <div className="empty-state">No treatment history found for this patient.</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                {patientHistory.map(app => (
-                  <div key={app.id} style={{
-                    background: 'rgba(255,255,255,0.45)', padding: '1rem', borderRadius: 'var(--radius-xl)',
-                    border: '1px solid var(--glass-border)'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
-                      <strong style={{ fontSize: '0.92rem' }}>📅 {app.date} at {app.time} — {app.treatmentType}</strong>
-                      <span className={`badge badge-${app.status === 'Completed' ? 'success' : app.status === 'Cancelled' ? 'danger' : 'primary'}`}>{app.status}</span>
-                    </div>
-                    {app.treatments.length > 0 ? (
-                      <div className="table-wrapper" style={{ marginTop: '0.5rem' }}>
-                        <table>
-                          <thead><tr><th>Tooth #</th><th>Notes</th><th>Cost</th><th>Follow-up</th></tr></thead>
-                          <tbody>
-                            {app.treatments.map(t => (
-                              <tr key={t.id}><td>{t.toothNumber}</td><td>{t.notes}</td><td>₹{t.cost.toLocaleString()}</td><td>{t.followUpDate || '—'}</td></tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    ) : (
-                      <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>No treatments recorded.</p>
-                    )}
+
+            {/* Patient Medical Info */}
+            {(historyPatient?.medicalHistory || (historyPatient?.allergies && historyPatient.allergies !== 'None')) && (
+              <div className="history-medical-banner">
+                {historyPatient?.allergies && historyPatient.allergies !== 'None' && (
+                  <div className="history-alert">
+                    <AlertCircle size={14} />
+                    <span><strong>Allergies:</strong> {historyPatient.allergies}</span>
                   </div>
-                ))}
+                )}
+                {historyPatient?.medicalHistory && (
+                  <div className="history-note">
+                    <FileText size={14} />
+                    <span><strong>Medical History:</strong> {historyPatient.medicalHistory}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Summary Stats */}
+            <div className="history-stats-grid">
+              <div className="history-stat">
+                <div className="history-stat-icon" style={{ background: 'var(--info-bg)', color: 'var(--primary)' }}>
+                  <CalendarDays size={18} />
+                </div>
+                <div>
+                  <span className="history-stat-value">{patientStats.totalVisits}</span>
+                  <span className="history-stat-label">Total Visits</span>
+                </div>
+              </div>
+              <div className="history-stat">
+                <div className="history-stat-icon" style={{ background: 'rgba(168, 85, 247, 0.1)', color: 'var(--secondary)' }}>
+                  <Stethoscope size={18} />
+                </div>
+                <div>
+                  <span className="history-stat-value">{patientStats.totalTreatments}</span>
+                  <span className="history-stat-label">Treatments</span>
+                </div>
+              </div>
+              <div className="history-stat">
+                <div className="history-stat-icon" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}>
+                  <IndianRupee size={18} />
+                </div>
+                <div>
+                  <span className="history-stat-value">₹{patientStats.totalSpent.toLocaleString()}</span>
+                  <span className="history-stat-label">Total Cost</span>
+                </div>
+              </div>
+              <div className="history-stat">
+                <div className="history-stat-icon" style={{ background: 'var(--warning-bg)', color: 'var(--warning)' }}>
+                  <TrendingUp size={18} />
+                </div>
+                <div>
+                  <span className="history-stat-value">₹{totalPaid.toLocaleString()}</span>
+                  <span className="history-stat-label">Paid of ₹{totalBilled.toLocaleString()}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Upcoming follow-ups alert */}
+            {patientStats.upcomingFollowUps > 0 && (
+              <div className="history-follow-up-banner">
+                <Clock size={15} />
+                <span>{patientStats.upcomingFollowUps} upcoming follow-up{patientStats.upcomingFollowUps > 1 ? 's' : ''} scheduled</span>
+              </div>
+            )}
+
+            {/* Interactive Tooth Chart */}
+            <ToothChart
+              treatments={
+                patientHistory.flatMap(app =>
+                  (app.treatments || []).map(t => ({
+                    toothNumber: t.toothNumber,
+                    notes: t.notes,
+                    cost: t.cost,
+                    date: app.date,
+                    status: app.status as 'Completed' | 'Scheduled' | 'Cancelled',
+                  }))
+                )
+              }
+            />
+
+            {/* Timeline */}
+            {patientHistory.length === 0 ? (
+              <div className="empty-state" style={{ padding: '2.5rem 1rem' }}>
+                <Stethoscope size={36} style={{ marginBottom: '0.75rem', opacity: 0.3 }} />
+                <p>No treatment history found for this patient.</p>
+                <p style={{ fontSize: '0.82rem', marginTop: '0.25rem' }}>Appointments will appear here once created.</p>
+              </div>
+            ) : (
+              <div className="timeline">
+                {patientHistory.map((app, idx) => {
+                  const apptCost = (app.treatments || []).reduce((sum, t) => sum + (t.cost || 0), 0);
+                  const linkedInvoice = patientInvoices.find(i => i.appointmentId === app.id);
+
+                  return (
+                    <div key={app.id} className="timeline-item" style={{ animationDelay: `${idx * 0.06}s` }}>
+                      {/* Timeline dot & line */}
+                      <div className="timeline-indicator">
+                        <div className={`timeline-dot timeline-dot-${app.status === 'Completed' ? 'success' : app.status === 'Cancelled' ? 'danger' : 'primary'}`} />
+                        {idx < patientHistory.length - 1 && <div className="timeline-line" />}
+                      </div>
+
+                      {/* Content */}
+                      <div className="timeline-content">
+                        {/* Header */}
+                        <div className="timeline-header">
+                          <div>
+                            <div className="timeline-date">
+                              <CalendarDays size={13} />
+                              {formatDate(app.date)}
+                              <span className="timeline-time">
+                                <Clock size={12} /> {app.time}
+                              </span>
+                            </div>
+                            <h4 className="timeline-title">{app.treatmentType || 'General Checkup'}</h4>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {apptCost > 0 && (
+                              <span className="timeline-cost">₹{apptCost.toLocaleString()}</span>
+                            )}
+                            <span className={`badge badge-${app.status === 'Completed' ? 'success' : app.status === 'Cancelled' ? 'danger' : 'primary'}`}>
+                              {app.status}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Treatment Cards */}
+                        {app.treatments && app.treatments.length > 0 ? (
+                          <div className="timeline-treatments">
+                            {app.treatments.map(t => (
+                              <div key={t.id} className="treatment-card">
+                                <div className="treatment-card-header">
+                                  <span className="treatment-tooth">
+                                    🦷 Tooth #{t.toothNumber}
+                                  </span>
+                                  <span className="treatment-cost-tag">₹{t.cost.toLocaleString()}</span>
+                                </div>
+                                <p className="treatment-notes">{t.notes}</p>
+                                {t.followUpDate && (
+                                  <div className="treatment-followup">
+                                    <ArrowRight size={12} />
+                                    Follow-up: {formatDate(t.followUpDate)}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="timeline-no-treatments">No treatments were recorded for this visit.</p>
+                        )}
+
+                        {/* Invoice link if exists */}
+                        {linkedInvoice && (
+                          <div className="timeline-invoice-tag">
+                            <IndianRupee size={12} />
+                            Invoice #{linkedInvoice.id.slice(-6)} — 
+                            <span style={{ color: linkedInvoice.status === 'Paid' ? 'var(--success)' : 'var(--warning)', fontWeight: 600 }}>
+                              {linkedInvoice.status}
+                            </span>
+                            <span style={{ marginLeft: 'auto', fontWeight: 600 }}>₹{linkedInvoice.finalAmount.toLocaleString()}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

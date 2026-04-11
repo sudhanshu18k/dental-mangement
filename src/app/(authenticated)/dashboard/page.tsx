@@ -1,11 +1,13 @@
 'use client';
 
+import { useUser } from '@clerk/nextjs';
 import { useStore } from '@/store';
-import { Users, CalendarDays, IndianRupee, Clock, ArrowUpRight } from 'lucide-react';
+import { Users, CalendarDays, IndianRupee, Clock, ArrowUpRight, Plus } from 'lucide-react';
 import { format, isToday } from 'date-fns';
 import Link from 'next/link';
 
 export default function DashboardPage() {
+  const { user } = useUser();
   const { patients, appointments, invoices } = useStore();
 
   const totalPatients = patients.length;
@@ -13,7 +15,9 @@ export default function DashboardPage() {
   const monthlyRevenue = invoices
     .filter(i => new Date(i.date).getMonth() === new Date().getMonth() && i.status === 'Paid')
     .reduce((acc, curr) => acc + curr.finalAmount, 0);
-  const pendingPayments = invoices.filter(i => i.status === 'Pending').length;
+  const pendingPayments = invoices
+    .filter(i => i.status === 'Pending')
+    .reduce((acc, curr) => acc + curr.finalAmount, 0);
 
   const upcomingFollowUps = appointments.flatMap(a =>
     a.treatments
@@ -26,29 +30,39 @@ export default function DashboardPage() {
   );
 
   const stats = [
-    { title: 'Total Patients', value: totalPatients, icon: Users, color: 'var(--primary)', bg: 'var(--info-bg)' },
-    { title: "Today's Appointments", value: todayAppointments.length, icon: CalendarDays, color: 'var(--success)', bg: 'var(--success-bg)' },
-    { title: 'Monthly Revenue', value: `₹${monthlyRevenue.toLocaleString()}`, icon: IndianRupee, color: 'var(--warning)', bg: 'var(--warning-bg)' },
-    { title: 'Pending Payments', value: pendingPayments, icon: Clock, color: 'var(--danger)', bg: 'var(--danger-bg)' },
+    { title: 'Total Patients', value: totalPatients, icon: Users },
+    { title: "Today's Appointments", value: todayAppointments.length, icon: CalendarDays },
+    { title: 'Monthly Revenue', value: `₹${monthlyRevenue.toLocaleString()}`, icon: IndianRupee },
+    { title: 'Pending Payments', value: `₹${pendingPayments.toLocaleString()}`, icon: Clock },
   ];
 
-  return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Clinic Dashboard</h1>
-          <p className="page-subtitle">{format(new Date(), 'EEEE, MMMM d, yyyy')}</p>
-        </div>
-      </div>
+  const displayName = user?.fullName || user?.firstName || 'Clinic Owner';
 
-      {/* Stat cards */}
-      <div className="grid grid-4 gap-5" style={{ marginBottom: '1.75rem' }}>
+  return (
+    <div className="animate-fade-in">
+      {/* Dashboard Header from Image */}
+      <section className="flex justify-between items-start mb-10">
+        <div>
+          <h1 className="headline-lg" style={{ fontSize: '2.2rem', marginBottom: '0.25rem' }}>
+            Good morning, {displayName}! 👋
+          </h1>
+          <p style={{ color: 'var(--on-surface-variant)', fontSize: '1rem' }}>
+            Here&apos;s your clinic overview for today
+          </p>
+        </div>
+        <Link href="/appointments" className="btn btn-primary">
+          <Plus size={18} strokeWidth={3} /> Book Appointment
+        </Link>
+      </section>
+
+      {/* Metric Grid: Row layout from image */}
+      <div className="grid grid-4 gap-6 mb-10">
         {stats.map((stat, i) => (
-          <div key={i} className="card stat-card">
-            <div className="stat-icon" style={{ background: stat.bg, color: stat.color }}>
-              <stat.icon size={26} />
+          <div key={i} className="stat-card">
+            <div className="stat-icon">
+              <stat.icon size={24} strokeWidth={2.5} />
             </div>
-            <div>
+            <div className="stat-content">
               <p className="stat-label">{stat.title}</p>
               <h3 className="stat-value">{stat.value}</h3>
             </div>
@@ -56,33 +70,32 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="grid grid-2 gap-5">
-        {/* Today's Schedule */}
+      <div className="grid grid-2 gap-8">
+        {/* Upcoming Appointments Layout */}
         <div className="card">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-            <h3 className="card-title" style={{ margin: 0 }}>
-              <CalendarDays size={20} color="var(--primary)" /> Today&apos;s Schedule
-            </h3>
-            <Link href="/appointments" className="btn btn-sm" style={{ textDecoration: 'none' }}>
-              View All <ArrowUpRight size={14} />
-            </Link>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          <header className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-2">
+              <CalendarDays size={20} className="text-primary" />
+              <h2 className="card-title mb-0">Upcoming Appointments</h2>
+            </div>
+          </header>
+
+          <div className="flex flex-col gap-3">
             {todayAppointments.length === 0 ? (
-              <div className="empty-state">No appointments scheduled for today.</div>
+              <div className="empty-state">No upcoming appointments.</div>
             ) : (
               todayAppointments.slice(0, 5).map(app => {
                 const patient = patients.find(p => p.id === app.patientId);
                 return (
                   <div key={app.id} className="schedule-item">
-                    <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                    <div className="flex gap-4 items-center">
                       <div className="schedule-time">{app.time}</div>
                       <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-main)', fontSize: '0.95rem' }}>{patient?.name || 'Unknown'}</div>
-                        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{app.treatmentType || 'General'}</div>
+                        <div style={{ fontWeight: 700, fontSize: '1rem' }}>{patient?.name || 'Unknown'}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>{app.treatmentType}</div>
                       </div>
                     </div>
-                    <span className={`badge badge-${app.status === 'Completed' ? 'success' : app.status === 'Cancelled' ? 'danger' : 'primary'}`}>
+                    <span className={`badge badge-${app.status === 'Completed' ? 'success' : 'primary'}`}>
                       {app.status}
                     </span>
                   </div>
@@ -92,45 +105,31 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Right column — Quick Actions + Follow-ups */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-          {/* Quick Actions */}
-          <div className="card">
-            <h3 className="card-title"><ArrowUpRight size={20} color="var(--primary)" /> Quick Actions</h3>
-            <div className="grid grid-3 gap-4" style={{ marginTop: '0.5rem' }}>
-              <Link href="/patients" className="quick-action">
-                <Users size={26} color="var(--primary)" />
-                <span>Add Patient</span>
-              </Link>
-              <Link href="/appointments" className="quick-action">
-                <CalendarDays size={26} color="var(--success)" />
-                <span>Book Appt</span>
-              </Link>
-              <Link href="/billing" className="quick-action">
-                <IndianRupee size={26} color="#d97706" />
-                <span>New Invoice</span>
-              </Link>
+        {/* Upcoming Follow-ups Layout */}
+        <div className="card">
+          <header className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-2">
+              <CalendarDays size={20} className="text-primary" />
+              <h2 className="card-title mb-0">Upcoming Follow-ups</h2>
             </div>
-          </div>
+          </header>
 
-          {/* Upcoming Follow-ups */}
-          <div className="card" style={{ flex: 1 }}>
-            <h3 className="card-title"><Clock size={20} color="var(--warning)" /> Upcoming Follow-ups</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-              {upcomingFollowUps.length === 0 ? (
-                <div className="empty-state" style={{ padding: '1.5rem' }}>No upcoming follow-ups.</div>
-              ) : (
-                upcomingFollowUps.slice(0, 4).map((fu, i) => (
-                  <div key={i} className="schedule-item">
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{fu.patientName}</div>
-                      <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{fu.treatmentNotes}</div>
-                    </div>
-                    <span className="badge badge-warning">{fu.followUpDate}</span>
+          <div className="flex flex-col gap-3">
+            {upcomingFollowUps.length === 0 ? (
+              <div className="empty-state">System clear. No pending follow-ups.</div>
+            ) : (
+              upcomingFollowUps.slice(0, 4).map((fu, i) => (
+                <div key={i} className="schedule-item">
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{fu.patientName}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>{fu.treatmentNotes}</div>
                   </div>
-                ))
-              )}
-            </div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>
+                    {fu.followUpDate}
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
