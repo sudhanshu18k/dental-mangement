@@ -18,6 +18,7 @@ interface StoreState {
   deleteAppointment: (id: string) => void;
   addInvoice: (i: Invoice) => void;
   updateInvoice: (id: string, i: Partial<Invoice>) => void;
+  deleteInvoice: (id: string) => void;
 }
 
 const StoreContext = createContext<StoreState | undefined>(undefined);
@@ -102,12 +103,17 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setDoc(doc(db, 'users', userId, 'invoices', id), i, { merge: true });
   }, [userId]);
 
+  const deleteInvoice = useCallback((id: string) => {
+    if (!userId) return;
+    deleteDoc(doc(db, 'users', userId, 'invoices', id));
+  }, [userId]);
+
   return (
     <StoreContext.Provider value={{
       patients, appointments, invoices,
       addPatient, updatePatient, deletePatient,
       addAppointment, updateAppointment, deleteAppointment,
-      addInvoice, updateInvoice,
+      addInvoice, updateInvoice, deleteInvoice,
     }}>
       {children}
     </StoreContext.Provider>

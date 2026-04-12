@@ -1,13 +1,13 @@
 'use client';
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useStore } from '@/store';
 import {
   ArrowLeft, Phone, Mail, MapPin, Calendar, User, AlertCircle,
   FileText, IndianRupee, CalendarDays, Clock, Stethoscope,
   ArrowRight, CheckCircle2, Timer, FileDown,
-  Receipt, Activity, CreditCard, Shield,
+  Receipt, Activity, CreditCard, Shield, StickyNote, Save,
 } from 'lucide-react';
 import { Invoice } from '@/types';
 import ToothChart from '@/components/ToothChart';
@@ -19,9 +19,22 @@ export default function PatientProfilePage() {
   const params = useParams();
   const router = useRouter();
   const patientId = params.id as string;
-  const { patients, appointments, invoices, updateInvoice } = useStore();
+  const { patients, appointments, invoices, updateInvoice, updatePatient } = useStore();
 
   const patient = patients.find(p => p.id === patientId);
+
+  // Doctor notes local state
+  const [notesText, setNotesText] = useState<string | null>(null);
+  const [notesSaved, setNotesSaved] = useState(false);
+  const displayNotes = notesText !== null ? notesText : (patient?.notes || '');
+
+  const handleSaveNotes = () => {
+    if (!patient) return;
+    updatePatient(patient.id, { notes: displayNotes });
+    setNotesSaved(true);
+    setNotesText(null);
+    setTimeout(() => setNotesSaved(false), 2000);
+  };
 
   // All appointments for this patient (sorted newest first)
   const patientAppointments = useMemo(() =>
@@ -379,6 +392,56 @@ export default function PatientProfilePage() {
               )}
             </div>
           )}
+
+          {/* Doctor's Notes */}
+          <div className="card profile-section">
+            <h3 className="profile-section-title">
+              <StickyNote size={16} /> Doctor&apos;s Notes
+              {notesSaved && (
+                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                  <CheckCircle2 size={13} /> Saved
+                </span>
+              )}
+            </h3>
+            <textarea
+              className="form-textarea"
+              rows={5}
+              placeholder="Jot down general observations, visit remarks, or any notes about this patient..."
+              value={displayNotes}
+              onChange={e => { setNotesText(e.target.value); setNotesSaved(false); }}
+              style={{
+                width: '100%',
+                resize: 'vertical',
+                borderRadius: 'var(--radius-md)',
+                border: '1px solid rgba(0,0,0,0.05)',
+                padding: '1rem 1.15rem',
+                fontSize: '0.92rem',
+                lineHeight: '1.7',
+                minHeight: '120px',
+                background: '#fdfdfe',
+                color: 'var(--on-surface)',
+                transition: 'border-color 0.2s, box-shadow 0.2s',
+              }}
+            />
+            {notesText !== null && notesText !== (patient?.notes || '') && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0.75rem' }}>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleSaveNotes}
+                  style={{
+                    padding: '0.6rem 1.5rem',
+                    fontSize: '0.85rem',
+                    borderRadius: 'var(--radius-md)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.4rem',
+                  }}
+                >
+                  <Save size={15} /> Save Notes
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Billing Summary */}
           <div className="card profile-section">

@@ -1,15 +1,40 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '@/store';
-import { IndianRupee, FileDown, Plus, X, Receipt, Trash2, Edit3 } from 'lucide-react';
+import { IndianRupee, FileDown, Plus, X, Receipt, Trash2, Edit3, Search, SlidersHorizontal, ArrowUpDown, ArrowDown, ArrowUp, ChevronDown, UserPlus } from 'lucide-react';
 import { Invoice, InvoiceItem } from '@/types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import QRCode from 'qrcode';
 
 export default function BillingPage() {
-  const { patients, appointments, invoices, addInvoice, updateInvoice } = useStore();
+  const { patients, appointments, invoices, addPatient, addInvoice, updateInvoice, deleteInvoice } = useStore();
+
+  /* ── Clinic settings (from Settings → Clinic tab) ── */
+  const [clinicName, setClinicName] = useState('SmileSync');
+  const [clinicPhone, setClinicPhone] = useState('+91 98765 43210');
+  const [clinicAddress, setClinicAddress] = useState('123 Healthcare Avenue, Medical District');
+  const [clinicUPI, setClinicUPI] = useState('smilesync@upi');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('smilesync_clinic');
+    if (saved) {
+      try {
+        const data = JSON.parse(saved);
+        if (data.clinicName) setClinicName(data.clinicName);
+        if (data.clinicPhone) setClinicPhone(data.clinicPhone);
+        if (data.clinicAddress) setClinicAddress(data.clinicAddress);
+        if (data.clinicUPI) setClinicUPI(data.clinicUPI);
+      } catch { /* ignore */ }
+    }
+  }, []);
+
+  /* ── Search, Filter, Sort state ── */
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending'>('All');
+  const [sortBy, setSortBy] = useState<'date' | 'amount'>('date');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
 
   /* ── Modal state ── */
   const [invoiceModal, setInvoiceModal] = useState(false);
@@ -26,6 +51,40 @@ export default function BillingPage() {
   const [manualDiscount, setManualDiscount] = useState(0);
   const [manualTax, setManualTax] = useState(18);
   const [manualNotes, setManualNotes] = useState('');
+
+  /* ── Manual Billing Patient Search ── */
+  const [manualPatientSearch, setManualPatientSearch] = useState('');
+  const [manualPatientDropdownOpen, setManualPatientDropdownOpen] = useState(false);
+
+  const filteredPatients = useMemo(() => {
+    if (!manualPatientSearch.trim()) return patients;
+    const q = manualPatientSearch.toLowerCase();
+    return patients.filter(p =>
+      p.name.toLowerCase().includes(q) ||
+      (p.phone || '').toLowerCase().includes(q)
+    );
+  }, [patients, manualPatientSearch]);
+
+  const handleAddNewPatient = () => {
+    if (!manualPatientSearch.trim()) return;
+    const newId = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
+    const newPatient: any = {
+      id: newId,
+      name: manualPatientSearch.trim(),
+      phone: '',
+      email: '',
+      address: '',
+      gender: 'Other',
+      age: '',
+      medicalHistory: '',
+      bloodGroup: '',
+      createdAt: new Date().toISOString()
+    };
+    addPatient(newPatient);
+    setManualPatientId(newId);
+    setManualPatientSearch(`${newPatient.name}`);
+    setManualPatientDropdownOpen(false);
+  };
 
   /* ── Derived: appointment-based ── */
   const billableAppointments = useMemo(() => 
@@ -122,19 +181,20 @@ export default function BillingPage() {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(26);
     doc.setTextColor(14, 165, 233);
-    doc.text('SmileSync', 14, 25);
+    doc.text(clinicName, 14, 25);
     
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.setTextColor(100, 116, 139);
-    doc.text('Dental Care & Aesthetics', 15, 31);
+    doc.text('Dental Care & Aesthetics', 14, 31);
     
     doc.setFontSize(9);
     doc.setTextColor(71, 85, 105);
-    doc.text('123 Healthcare Avenue', 195, 20, { align: 'right' });
-    doc.text('Medical District, City Center', 195, 25, { align: 'right' });
-    doc.text('Phone: +91 98765 43210', 195, 30, { align: 'right' });
-    doc.text('Email: hello@smilesync.clinic', 195, 35, { align: 'right' });
+    const addressLines = clinicAddress.split(',').map(s => s.trim());
+    doc.text(addressLines[0] || '', 195, 20, { align: 'right' });
+    doc.text(addressLines.slice(1).join(', ') || '', 195, 25, { align: 'right' });
+    doc.text(`Phone: ${clinicPhone}`, 195, 30, { align: 'right' });
+    doc.text(`UPI: ${clinicUPI}`, 195, 35, { align: 'right' });
 
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
@@ -241,7 +301,7 @@ export default function BillingPage() {
     // ======== TOTALS SECTION ========
     doc.setFontSize(9);
     doc.setTextColor(148, 163, 184);
-    doc.text('Thank you for choosing SmileSync Dental Care.', 14, finalY + 5);
+    doc.text(`Thank you for choosing ${clinicName}.`, 14, finalY + 5);
     doc.text('Please feel free to contact us for any queries regarding this invoice.', 14, finalY + 10);
 
     if (inv.notes) {
@@ -286,8 +346,8 @@ export default function BillingPage() {
     // ======== UPI QR CODE PAYMENT SECTION ========
     currentY += 22;
     
-    const upiId = 'smilesync@upi';
-    const upiName = 'SmileSync Dental';
+    const upiId = clinicUPI;
+    const upiName = clinicName;
     const upiAmount = inv.finalAmount.toFixed(2);
     const upiTxnNote = `Invoice INV-${inv.id.slice(-6).toUpperCase()}`;
     const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(upiName)}&am=${upiAmount}&cu=INR&tn=${encodeURIComponent(upiTxnNote)}`;
@@ -334,7 +394,7 @@ export default function BillingPage() {
       doc.setFontSize(7.5);
       doc.setTextColor(148, 163, 184);
       doc.text('For any payment issues, contact us at:', instructionX, qrBoxY + 57);
-      doc.text('+91 98765 43210 | hello@smilesync.clinic', instructionX, qrBoxY + 62);
+      doc.text(clinicPhone, instructionX, qrBoxY + 62);
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     } catch (err) {
       doc.setFont("helvetica", "normal");
@@ -351,14 +411,47 @@ export default function BillingPage() {
     doc.setLineWidth(0.5);
     doc.setDrawColor(226, 232, 240);
     doc.line(14, 280, 195, 280);
-    doc.text('SmileSync Dental Care Management - Owner Edition', 105, 287, { align: 'center' });
+    doc.text(`${clinicName} - Dental Care Management`, 105, 287, { align: 'center' });
 
-    doc.save(`SmileSync_Invoice_${inv.id.slice(-6).toUpperCase()}.pdf`);
+    doc.save(`${clinicName.replace(/\s+/g, '_')}_Invoice_${inv.id.slice(-6).toUpperCase()}.pdf`);
   };
 
   // Summary stats
   const totalRevenue = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + i.finalAmount, 0);
   const totalPending = invoices.filter(i => i.status === 'Pending').reduce((a, i) => a + i.finalAmount, 0);
+
+  /* ── Filtered & sorted invoices ── */
+  const filteredInvoices = useMemo(() => {
+    let result = [...invoices];
+
+    // Search by patient name
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(inv => {
+        const patient = patients.find(p => p.id === inv.patientId);
+        return (patient?.name || '').toLowerCase().includes(q)
+          || inv.id.toLowerCase().includes(q);
+      });
+    }
+
+    // Filter by status
+    if (statusFilter !== 'All') {
+      result = result.filter(inv => inv.status === statusFilter);
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'date') {
+        cmp = a.date.localeCompare(b.date);
+      } else {
+        cmp = a.finalAmount - b.finalAmount;
+      }
+      return sortDir === 'desc' ? -cmp : cmp;
+    });
+
+    return result;
+  }, [invoices, patients, searchQuery, statusFilter, sortBy, sortDir]);
 
   return (
     <div style={{ padding: '0.25rem 0.5rem' }}>
@@ -366,7 +459,7 @@ export default function BillingPage() {
         <div>
           <h1 className="page-title" style={{ fontSize: '2.25rem', fontWeight: 800, letterSpacing: '-0.03em', marginBottom: '0.5rem', color: 'var(--on-surface)' }}>Billing & Invoices</h1>
           <p className="page-subtitle" style={{ fontSize: '1rem', color: 'var(--on-surface-variant)', opacity: 0.8 }}>
-            Track revenue and manage patient accounts — {invoices.length} total records
+            {clinicName} — {invoices.length} total records
           </p>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
@@ -449,6 +542,126 @@ export default function BillingPage() {
         ))}
       </div>
 
+      {/* ── Search / Filter / Sort Toolbar ── */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '0.75rem',
+        marginBottom: '1.25rem',
+        flexWrap: 'wrap',
+      }}>
+        {/* Search */}
+        <div style={{
+          flex: '1 1 280px',
+          position: 'relative',
+          maxWidth: '400px',
+        }}>
+          <Search size={18} style={{
+            position: 'absolute',
+            left: '1rem',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            color: 'var(--on-surface-variant)',
+            opacity: 0.5,
+          }} />
+          <input
+            className="form-input"
+            placeholder="Search by patient name or invoice ID..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{
+              paddingLeft: '2.75rem',
+              borderRadius: '1rem',
+              border: '1px solid var(--outline-variant)',
+              background: 'white',
+              fontSize: '0.9rem',
+              height: '2.75rem',
+            }}
+          />
+        </div>
+
+        {/* Status Filter Pills */}
+        <div style={{
+          display: 'flex',
+          gap: '0.35rem',
+          background: 'var(--surface-container-low)',
+          padding: '0.3rem',
+          borderRadius: '0.75rem',
+          border: '1px solid var(--outline-variant)',
+        }}>
+          {(['All', 'Paid', 'Pending'] as const).map(status => (
+            <button
+              key={status}
+              onClick={() => setStatusFilter(status)}
+              style={{
+                border: 'none',
+                padding: '0.45rem 0.85rem',
+                borderRadius: '0.5rem',
+                fontWeight: 700,
+                fontSize: '0.78rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                background: statusFilter === status ? 'white' : 'transparent',
+                color: statusFilter === status
+                  ? (status === 'Paid' ? 'var(--success)' : status === 'Pending' ? 'var(--warning)' : 'var(--on-surface)')
+                  : 'var(--on-surface-variant)',
+                boxShadow: statusFilter === status ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+              }}
+            >
+              {status === 'Paid' ? '● Paid' : status === 'Pending' ? '● Unpaid' : 'All'}
+            </button>
+          ))}
+        </div>
+
+        {/* Sort Control */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.4rem',
+          marginLeft: 'auto',
+        }}>
+          <SlidersHorizontal size={15} style={{ color: 'var(--on-surface-variant)', opacity: 0.6 }} />
+          <select
+            className="form-select"
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value as 'date' | 'amount')}
+            style={{
+              border: '1px solid var(--outline-variant)',
+              borderRadius: '0.75rem',
+              padding: '0.45rem 0.75rem',
+              fontSize: '0.82rem',
+              fontWeight: 600,
+              minWidth: 'auto',
+              width: 'auto',
+              height: '2.75rem',
+              background: 'white',
+              color: 'var(--on-surface)',
+            }}
+          >
+            <option value="date">Sort by Date</option>
+            <option value="amount">Sort by Amount</option>
+          </select>
+          <button
+            onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+            className="btn btn-icon btn-sm"
+            title={sortDir === 'desc' ? 'Newest first' : 'Oldest first'}
+            style={{
+              width: '2.75rem',
+              height: '2.75rem',
+              borderRadius: '0.75rem',
+              background: 'white',
+              border: '1px solid var(--outline-variant)',
+              color: 'var(--on-surface)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {sortDir === 'desc' ? <ArrowDown size={16} /> : <ArrowUp size={16} />}
+          </button>
+        </div>
+      </div>
+
       {/* ── Table Section ── */}
       <div className="card" style={{ 
         padding: 0, 
@@ -478,15 +691,33 @@ export default function BillingPage() {
               </tr>
             </thead>
             <tbody style={{ fontSize: '0.9rem' }}>
-              {invoices.length === 0 ? (
+              {filteredInvoices.length === 0 ? (
                 <tr>
                   <td colSpan={10} style={{ padding: '5rem 2rem', textAlign: 'center' }}>
                     <div style={{ opacity: 0.4, marginBottom: '1rem', color: 'var(--on-surface-variant)' }}><Receipt size={48} /></div>
-                    <p style={{ fontWeight: 600, color: 'var(--on-surface-variant)' }}>No invoice history available.</p>
+                    <p style={{ fontWeight: 600, color: 'var(--on-surface-variant)' }}>
+                      {invoices.length === 0 ? 'No invoice history available.' : 'No invoices match your filters.'}
+                    </p>
+                    {(searchQuery || statusFilter !== 'All') && invoices.length > 0 && (
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => { setSearchQuery(''); setStatusFilter('All'); }}
+                        style={{
+                          marginTop: '0.75rem',
+                          background: 'var(--info-bg)',
+                          color: 'var(--primary)',
+                          border: '1px solid var(--outline-variant)',
+                          fontWeight: 600,
+                          borderRadius: '0.75rem',
+                        }}
+                      >
+                        Clear Filters
+                      </button>
+                    )}
                   </td>
                 </tr>
               ) : (
-                [...invoices].sort((a, b) => b.date.localeCompare(a.date)).map(inv => {
+                filteredInvoices.map(inv => {
                   const patient = patients.find(p => p.id === inv.patientId);
                   const isManual = !inv.appointmentId;
                   return (
@@ -536,14 +767,24 @@ export default function BillingPage() {
                         </select>
                       </td>
                       <td style={{ padding: '1.25rem 1.5rem' }}>
-                        <button 
-                          className="btn btn-sm btn-icon" 
-                          onClick={() => handleDownloadPDF(inv)}
-                          style={{ padding: '0.5rem', borderRadius: '0.75rem', background: 'var(--surface-container-high)', color: 'var(--on-surface)' }}
-                          title="Download PDF"
-                        >
-                          <FileDown size={18} />
-                        </button>
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button 
+                            className="btn btn-sm btn-icon" 
+                            onClick={() => handleDownloadPDF(inv)}
+                            style={{ padding: '0.5rem', borderRadius: '0.75rem', background: 'var(--surface-container-high)', color: 'var(--on-surface)' }}
+                            title="Download PDF"
+                          >
+                            <FileDown size={18} />
+                          </button>
+                          <button 
+                            className="btn btn-sm btn-icon" 
+                            onClick={() => { if (confirm(`Delete invoice #${inv.id.slice(-6).toUpperCase()}? This cannot be undone.`)) deleteInvoice(inv.id); }}
+                            style={{ padding: '0.5rem', borderRadius: '0.75rem', background: 'var(--danger-bg, rgba(239,68,68,0.08))', color: 'var(--danger)' }}
+                            title="Delete invoice"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -792,12 +1033,148 @@ export default function BillingPage() {
             {modalMode === 'manual' && (
               <form onSubmit={handleGenerateManual} style={{ padding: '0 1.5rem 1.5rem' }}>
                 {/* Patient select */}
-                <div className="form-group">
+                <div className="form-group" style={{ position: 'relative' }}>
                   <label className="form-label" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--on-surface-variant)' }}>Patient</label>
-                  <select required className="form-select" value={manualPatientId} onChange={e => setManualPatientId(e.target.value)} style={{ borderRadius: '0.75rem', border: '1.5px solid var(--outline-variant)' }}>
-                    <option value="">Select patient...</option>
-                    {patients.map(p => <option key={p.id} value={p.id}>{p.name} ({p.phone})</option>)}
-                  </select>
+                  <div style={{ position: 'relative' }}>
+                    <Search size={16} style={{
+                      position: 'absolute', left: '0.85rem', top: '50%', transform: 'translateY(-50%)',
+                      color: 'var(--on-surface-variant)', opacity: 0.45, pointerEvents: 'none',
+                    }} />
+                    <input
+                      className="form-input"
+                      placeholder="Search patient by name or phone..."
+                      value={manualPatientSearch}
+                      onChange={e => {
+                        setManualPatientSearch(e.target.value);
+                        setManualPatientDropdownOpen(true);
+                        if (manualPatientId) {
+                          const sel = patients.find(p => p.id === manualPatientId);
+                          if (sel && e.target.value !== `${sel.name} (${sel.phone})`) {
+                            setManualPatientId('');
+                          }
+                        }
+                      }}
+                      onFocus={() => setManualPatientDropdownOpen(true)}
+                      style={{
+                        borderRadius: '0.75rem',
+                        border: '1.5px solid var(--outline-variant)',
+                        paddingLeft: '2.5rem',
+                        paddingRight: '2rem',
+                        borderColor: manualPatientId ? 'var(--success)' : undefined,
+                      }}
+                    />
+                    <ChevronDown size={16} style={{
+                      position: 'absolute', right: '0.85rem', top: '50%', transform: `translateY(-50%) rotate(${manualPatientDropdownOpen ? 180 : 0}deg)`,
+                      color: 'var(--on-surface-variant)', opacity: 0.4, pointerEvents: 'none', transition: 'transform 0.2s',
+                    }} />
+                    <input type="text" required value={manualPatientId || ''} onChange={() => {}} style={{ position: 'absolute', opacity: 0, width: 0, height: 0, pointerEvents: 'none' }} tabIndex={-1} />
+                  </div>
+
+                  {/* Dropdown */}
+                  {manualPatientDropdownOpen && (
+                    <>
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setManualPatientDropdownOpen(false)} />
+                      <div style={{
+                        position: 'absolute',
+                        top: '100%',
+                        left: 0, right: 0,
+                        marginTop: '0.3rem',
+                        background: 'white',
+                        border: '1px solid var(--outline-variant)',
+                        borderRadius: '0.875rem',
+                        boxShadow: '0 12px 32px rgba(0,0,0,0.1)',
+                        maxHeight: '220px',
+                        overflowY: 'auto',
+                        zIndex: 100,
+                      }}>
+                        {filteredPatients.length === 0 ? (
+                          <div style={{ padding: '0.5rem' }}>
+                            <div style={{ padding: '0.85rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>
+                              No results for &quot;{manualPatientSearch}&quot;
+                            </div>
+                            <button
+                              type="button"
+                              onClick={handleAddNewPatient}
+                              style={{
+                                width: '100%',
+                                padding: '0.85rem',
+                                background: 'rgba(14, 165, 233, 0.08)',
+                                border: '1px dashed var(--primary)',
+                                borderRadius: '0.6rem',
+                                color: 'var(--primary)',
+                                fontWeight: 700,
+                                fontSize: '0.88rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: '0.6rem',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              <UserPlus size={18} /> Add New Patient
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            {filteredPatients.map(p => (
+                              <div
+                                key={p.id}
+                                onClick={() => {
+                                  setManualPatientId(p.id);
+                                  setManualPatientSearch(`${p.name} (${p.phone})`);
+                                  setManualPatientDropdownOpen(false);
+                                }}
+                                style={{
+                                  padding: '0.75rem 1rem',
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.75rem',
+                                  background: manualPatientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent',
+                                  borderBottom: '1px solid rgba(0,0,0,0.04)',
+                                }}
+                              >
+                                <div style={{
+                                  width: '32px', height: '32px', borderRadius: '8px',
+                                  background: 'linear-gradient(135deg, var(--primary), #a855f7)',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  color: 'white', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0,
+                                }}>{p.name.charAt(0).toUpperCase()}</div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--on-surface)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
+                                  <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>{p.phone || 'No phone'}</div>
+                                </div>
+                                {manualPatientId === p.id && <div style={{ color: 'var(--success)' }}>✓</div>}
+                              </div>
+                            ))}
+                            {manualPatientSearch && !filteredPatients.some(p => p.name.toLowerCase() === manualPatientSearch.toLowerCase()) && (
+                              <button
+                                type="button"
+                                onClick={handleAddNewPatient}
+                                style={{
+                                  width: '100%',
+                                  padding: '0.75rem 1rem',
+                                  background: 'transparent',
+                                  border: 'none',
+                                  borderTop: '1px solid var(--outline-variant)',
+                                  color: 'var(--primary)',
+                                  fontWeight: 700,
+                                  fontSize: '0.82rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.75rem',
+                                  cursor: 'pointer',
+                                  textAlign: 'left',
+                                }}
+                              >
+                                <UserPlus size={16} /> Add &quot;{manualPatientSearch}&quot; as New Patient
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </div>
 
                 {/* Line Items */}
@@ -833,14 +1210,24 @@ export default function BillingPage() {
                         </div>
                         <button
                           type="button"
-                          className="btn btn-icon btn-sm"
                           onClick={() => removeManualItem(idx)}
                           disabled={manualItems.length <= 1}
                           style={{ 
-                            background: 'var(--surface-container)', 
-                            borderRadius: '0.6rem', 
+                            width: '40px',
+                            height: '40px',
+                            minWidth: '40px',
+                            flexShrink: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: manualItems.length <= 1 ? 'var(--surface-container)' : 'rgba(239, 68, 68, 0.1)',
+                            border: `1px solid ${manualItems.length <= 1 ? 'var(--outline-variant)' : 'rgba(239, 68, 68, 0.2)'}`,
+                            borderRadius: '0.75rem', 
                             color: 'var(--danger)',
-                            opacity: manualItems.length <= 1 ? 0.3 : 1 
+                            cursor: manualItems.length <= 1 ? 'not-allowed' : 'pointer',
+                            opacity: manualItems.length <= 1 ? 0.35 : 1,
+                            transition: 'all 0.2s',
+                            padding: 0,
                           }}
                           title="Remove item"
                         >

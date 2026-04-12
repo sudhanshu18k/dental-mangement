@@ -8,6 +8,7 @@ export type Patient = {
   address: string;
   medicalHistory: string;
   allergies: string;
+  notes?: string;
 };
 
 export type Treatment = {

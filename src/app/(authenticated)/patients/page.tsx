@@ -3,17 +3,52 @@
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store';
-import { Search, UserPlus, Edit2, Trash2, FileText, X, Phone, Mail, CalendarDays, IndianRupee, Clock, Stethoscope, TrendingUp, AlertCircle, ArrowRight, ExternalLink } from 'lucide-react';
-import { Patient } from '@/types';
+import { Search, UserPlus, Edit2, Trash2, FileText, X, Phone, Mail, CalendarDays, IndianRupee, Clock, Stethoscope, TrendingUp, AlertCircle, ArrowRight, ExternalLink, CalendarPlus, Download } from 'lucide-react';
+import { Patient, Appointment } from '@/types';
 import ToothChart from '@/components/ToothChart';
 
 export default function PatientsPage() {
-  const { patients, addPatient, updatePatient, deletePatient, appointments, invoices } = useStore();
+  const { patients, addPatient, updatePatient, deletePatient, appointments, invoices, addAppointment } = useStore();
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState<'add' | 'edit' | null>(null);
   const [current, setCurrent] = useState<Partial<Patient>>({});
   const [historyId, setHistoryId] = useState<string | null>(null);
+
+  /* ── Quick-Book state ── */
+  const [quickBookPatient, setQuickBookPatient] = useState<Patient | null>(null);
+  const [qbDate, setQbDate] = useState('');
+  const [qbTime, setQbTime] = useState('');
+  const [qbTreatment, setQbTreatment] = useState('');
+
+  const openQuickBook = (p: Patient) => {
+    setQuickBookPatient(p);
+    const today = new Date();
+    setQbDate(today.toISOString().split('T')[0]);
+    setQbTime('10:00');
+    setQbTreatment('');
+  };
+  const closeQuickBook = () => {
+    setQuickBookPatient(null);
+    setQbDate('');
+    setQbTime('');
+    setQbTreatment('');
+  };
+  const handleQuickBook = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quickBookPatient) return;
+    const appt: Appointment = {
+      id: 'a' + Date.now(),
+      patientId: quickBookPatient.id,
+      date: qbDate,
+      time: qbTime,
+      treatmentType: qbTreatment,
+      status: 'Scheduled',
+      treatments: [],
+    };
+    addAppointment(appt);
+    closeQuickBook();
+  };
 
   const filtered = patients.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) || p.phone.includes(search)
@@ -31,6 +66,40 @@ export default function PatientsPage() {
       addPatient({ ...current, id: 'p' + Date.now() } as Patient);
     }
     closeModal();
+  };
+
+  /* ── Export CSV ── */
+  const handleExportCSV = () => {
+    if (patients.length === 0) return;
+    const headers = ['Name', 'Phone', 'Email', 'Date of Birth', 'Gender', 'Address', 'Medical History', 'Allergies', 'Notes'];
+    const escapeCSV = (val: string) => {
+      if (!val) return '';
+      if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+        return `"${val.replace(/"/g, '""')}"`;
+      }
+      return val;
+    };
+    const rows = patients.map(p => [
+      escapeCSV(p.name),
+      escapeCSV(p.phone),
+      escapeCSV(p.email),
+      escapeCSV(p.dob),
+      escapeCSV(p.gender),
+      escapeCSV(p.address),
+      escapeCSV(p.medicalHistory),
+      escapeCSV(p.allergies),
+      escapeCSV(p.notes || ''),
+    ].join(','));
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `SmileSync_Patients_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const historyPatient = patients.find(p => p.id === historyId);
@@ -88,9 +157,14 @@ export default function PatientsPage() {
           <h1 className="page-title">Patients Directory</h1>
           <p className="page-subtitle">{patients.length} patients registered</p>
         </div>
-        <button className="btn btn-primary" onClick={openAdd}>
-          <UserPlus size={18} /> Add New Patient
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn" onClick={handleExportCSV} style={{ background: 'white', border: '1px solid rgba(0,0,0,0.06)' }}>
+            <Download size={17} /> Export CSV
+          </button>
+          <button className="btn btn-primary" onClick={openAdd}>
+            <UserPlus size={18} /> Add New Patient
+          </button>
+        </div>
       </div>
 
       {/* Search */}
@@ -147,6 +221,14 @@ export default function PatientsPage() {
                     <td>
                       <div style={{ display: 'flex', gap: '0.4rem' }}>
                         <button className="btn btn-icon" title="View Profile" style={{ color: 'var(--primary)' }} onClick={() => router.push(`/patients/${p.id}`)}><ExternalLink size={16} /></button>
+                        <button
+                          className="btn btn-icon"
+                          title="Book Appointment"
+                          style={{ color: 'var(--success)' }}
+                          onClick={() => openQuickBook(p)}
+                        >
+                          <CalendarPlus size={16} />
+                        </button>
                         <button className="btn btn-icon" title="History" onClick={() => setHistoryId(p.id)}><FileText size={16} /></button>
                         <button className="btn btn-icon" style={{ color: 'var(--warning)' }} title="Edit" onClick={() => openEdit(p)}><Edit2 size={16} /></button>
                         <button className="btn btn-icon btn-danger" title="Delete" onClick={() => { if(confirm('Delete this patient?')) deletePatient(p.id); }}><Trash2 size={16} /></button>
@@ -230,12 +312,12 @@ export default function PatientsPage() {
                   {historyPatient?.name?.charAt(0).toUpperCase() || '?'}
                 </div>
                 <div>
-                  <h2 className="modal-title" style={{ marginBottom: '0.15rem' }}>
-                    {historyPatient?.name}&apos;s Treatment History
+                  <h2 className="modal-title" style={{ marginBottom: '0.25rem', fontSize: '1.5rem', letterSpacing: '-0.02em' }}>
+                    {historyPatient?.name}&apos;s Case History
                   </h2>
-                  <div style={{ display: 'flex', gap: '1rem', fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    {historyPatient?.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Phone size={12} /> {historyPatient.phone}</span>}
-                    {historyPatient?.email && <span style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}><Mail size={12} /> {historyPatient.email}</span>}
+                  <div style={{ display: 'flex', gap: '1.25rem', fontSize: '0.88rem', color: 'var(--text-muted)' }}>
+                    {historyPatient?.phone && <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Phone size={14} /> {historyPatient.phone}</span>}
+                    {historyPatient?.email && <span style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}><Mail size={14} /> {historyPatient.email}</span>}
                   </div>
                 </div>
               </div>
@@ -410,6 +492,228 @@ export default function PatientsPage() {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Quick-Book Appointment Modal ═══ */}
+      {quickBookPatient && (
+        <div className="modal-overlay" onClick={closeQuickBook}>
+          <div
+            className="modal-content"
+            onClick={e => e.stopPropagation()}
+            style={{
+              width: '460px',
+              animation: 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+              padding: 0, /* Using internal padding for better header/footer control */
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: '1.75rem 2rem 1.25rem',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              borderBottom: '1px solid rgba(0,0,0,0.03)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                <div style={{
+                  width: '44px',
+                  height: '44px',
+                  borderRadius: '14px',
+                  background: 'var(--success-bg, rgba(16,185,129,0.1))',
+                  color: 'var(--success, #10b981)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '1.1rem',
+                  fontWeight: 800,
+                }}>
+                  <CalendarPlus size={22} />
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main, #0f172a)' }}>Quick Book</h2>
+                  <p style={{ margin: 0, fontSize: '0.82rem', color: 'var(--text-muted, #64748b)' }}>Schedule for <strong>{quickBookPatient.name}</strong></p>
+                </div>
+              </div>
+              <button className="btn btn-icon" onClick={closeQuickBook} style={{ background: 'rgba(0,0,0,0.02)', borderRadius: '12px', padding: '8px' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Patient badge */}
+            <div style={{
+              margin: '1.25rem 2rem 0',
+              padding: '0.85rem 1rem',
+              borderRadius: '1rem',
+              background: 'var(--surface-container-low, #f8fafc)',
+              border: '1px solid rgba(0,0,0,0.03)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+            }}>
+              <div style={{
+                width: '38px',
+                height: '38px',
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, var(--primary, #0ea5e9), var(--secondary, #a855f7))',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 800,
+                fontSize: '0.95rem',
+              }}>
+                {quickBookPatient.name.charAt(0).toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: '0.92rem', color: 'var(--text-main)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{quickBookPatient.name}</div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Phone size={11} /> {quickBookPatient.phone}
+                </div>
+              </div>
+              {quickBookPatient.allergies && quickBookPatient.allergies !== 'None' && (
+                <span style={{
+                  fontSize: '0.68rem',
+                  fontWeight: 700,
+                  padding: '0.25rem 0.6rem',
+                  borderRadius: '0.5rem',
+                  background: 'var(--warning-bg, rgba(245,158,11,0.1))',
+                  color: 'var(--warning, #f59e0b)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                }}>
+                  <AlertCircle size={11} /> Allergy
+                </span>
+              )}
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleQuickBook} style={{ padding: '1.25rem 2rem 2rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.7rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    fontWeight: 800,
+                    color: 'var(--text-muted, #64748b)',
+                    marginBottom: '0.5rem',
+                  }}>Date</label>
+                  <input
+                    type="date"
+                    required
+                    className="form-input"
+                    value={qbDate}
+                    onChange={e => setQbDate(e.target.value)}
+                    style={{
+                      borderRadius: '0.875rem',
+                      border: '1.5px solid var(--outline-variant, #e2e8f0)',
+                      height: '2.85rem',
+                      fontSize: '0.9rem',
+                      padding: '0 0.85rem',
+                    }}
+                  />
+                </div>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label style={{
+                    display: 'block',
+                    fontSize: '0.7rem',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.06em',
+                    fontWeight: 800,
+                    color: 'var(--text-muted, #64748b)',
+                    marginBottom: '0.5rem',
+                  }}>Time</label>
+                  <input
+                    type="time"
+                    required
+                    className="form-input"
+                    value={qbTime}
+                    onChange={e => setQbTime(e.target.value)}
+                    style={{
+                      borderRadius: '0.875rem',
+                      border: '1.5px solid var(--outline-variant, #e2e8f0)',
+                      height: '2.85rem',
+                      fontSize: '0.9rem',
+                      padding: '0 0.85rem',
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group" style={{ margin: '0 0 1.5rem' }}>
+                <label style={{
+                  display: 'block',
+                  fontSize: '0.7rem',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  fontWeight: 800,
+                  color: 'var(--text-muted, #64748b)',
+                  marginBottom: '0.5rem',
+                }}>Treatment Type</label>
+                <select
+                  className="form-select"
+                  value={qbTreatment}
+                  onChange={e => setQbTreatment(e.target.value)}
+                  style={{
+                    borderRadius: '0.875rem',
+                    border: '1.5px solid var(--outline-variant, #e2e8f0)',
+                    height: '2.85rem',
+                    fontSize: '0.9rem',
+                    padding: '0 0.85rem',
+                  }}
+                >
+                  <option value="">Select treatment...</option>
+                  <option value="Cleaning">Cleaning</option>
+                  <option value="Filling">Filling</option>
+                  <option value="Root Canal">Root Canal</option>
+                  <option value="Extraction">Extraction</option>
+                  <option value="Crown">Crown</option>
+                  <option value="Consultation">Consultation</option>
+                  <option value="Whitening">Whitening</option>
+                  <option value="Braces">Braces / Orthodontics</option>
+                  <option value="Implant">Implant</option>
+                </select>
+              </div>
+
+              {/* Action buttons */}
+              <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'flex-end' }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={closeQuickBook}
+                  style={{
+                    borderRadius: '1rem',
+                    fontWeight: 700,
+                    padding: '0.75rem 1.5rem',
+                    background: 'var(--surface-container, #f1f5f9)',
+                    color: 'var(--text-main)',
+                    border: 'none',
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{
+                    borderRadius: '1rem',
+                    fontWeight: 800,
+                    padding: '0.75rem 2rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.5rem',
+                    background: 'var(--success, #10b981)',
+                    boxShadow: '0 8px 24px rgba(16, 185, 129, 0.25)',
+                  }}
+                >
+                  <CalendarPlus size={17} /> Book Appointment
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -2,7 +2,7 @@
 
 import { useUser } from '@clerk/nextjs';
 import { useStore } from '@/store';
-import { Users, CalendarDays, IndianRupee, Clock, ArrowUpRight, Plus } from 'lucide-react';
+import { Users, CalendarDays, IndianRupee, Clock, ArrowUpRight, Plus, Send, MessageCircle } from 'lucide-react';
 import { format, isToday } from 'date-fns';
 import Link from 'next/link';
 
@@ -37,6 +37,50 @@ export default function DashboardPage() {
   ];
 
   const displayName = user?.fullName || user?.firstName || 'Clinic Owner';
+
+  /* ── WhatsApp Reminder ── */
+  const sendWhatsAppReminder = (app: typeof todayAppointments[0]) => {
+    const patient = patients.find(p => p.id === app.patientId);
+    if (!patient?.phone) return;
+    let clinicLabel = 'SmileSync Dental';
+    let clinicAddress = '';
+    try {
+      const saved = localStorage.getItem('smilesync_clinic');
+      if (saved) { 
+        const d = JSON.parse(saved); 
+        if (d.clinicName) clinicLabel = d.clinicName; 
+        if (d.clinicAddress) clinicAddress = d.clinicAddress;
+      }
+    } catch { /* fallback */ }
+    const dateObj = new Date(app.date + 'T00:00:00');
+    const dateLabel = dateObj.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' });
+    const [h, m] = app.time.split(':');
+    const hour = parseInt(h);
+    const timeLabel = `${hour > 12 ? hour - 12 : hour}:${m} ${hour >= 12 ? 'PM' : 'AM'}`;
+    
+    const msg = [
+      `*APPOINTMENT REMINDER*`,
+      `--------------------------`,
+      `Hello ${patient.name},`,
+      ``,
+      `Your dental visit at *${clinicLabel}* is scheduled for:`,
+      ``,
+      `📅  ${dateLabel}`,
+      `⏰  ${timeLabel}`,
+      app.treatmentType ? `🦷  ${app.treatmentType}` : '',
+      ``,
+      `📍 *Location:* ${clinicAddress || 'Our Clinic'}`,
+      ``,
+      `Please try to arrive 5–10 minutes early. We look forward to seeing you! ✨`,
+      `--------------------------`,
+      `_Reply to this message if you need to reschedule._`
+    ].filter(Boolean).join('\n');
+
+    let phone = patient.phone.replace(/[\s-()]/g, '');
+    if (!phone.startsWith('+')) phone = phone.startsWith('91') ? phone : '91' + phone;
+    else phone = phone.substring(1);
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
 
   return (
     <div className="animate-fade-in pb-10">
@@ -78,6 +122,21 @@ export default function DashboardPage() {
               <CalendarDays size={20} className="text-primary" />
               <h2 className="card-title mb-0">Upcoming Appointments</h2>
             </div>
+            {todayAppointments.filter(a => a.status === 'Scheduled').length > 0 && (
+              <button
+                className="btn btn-sm btn-whatsapp"
+                onClick={() => {
+                  const scheduled = todayAppointments.filter(a => a.status === 'Scheduled');
+                  if (confirm(`Send WhatsApp reminders to ${scheduled.length} patient(s)?`)) {
+                    scheduled.forEach((a, i) => setTimeout(() => sendWhatsAppReminder(a), i * 800));
+                  }
+                }}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '0.4rem 0.8rem' }}
+                title="Send WhatsApp reminders to all scheduled patients"
+              >
+                <MessageCircle size={14} strokeWidth={2.5} /> Remind All
+              </button>
+            )}
           </header>
 
           <div className="flex flex-col gap-3">
@@ -97,9 +156,21 @@ export default function DashboardPage() {
                         <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>{app.treatmentType}</div>
                       </div>
                     </div>
-                    <span className={`badge badge-${app.status === 'Completed' ? 'success' : 'primary'}`}>
-                      {app.status}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      {app.status === 'Scheduled' && patient?.phone && (
+                        <button
+                          className="btn btn-icon btn-sm btn-whatsapp-glass"
+                          onClick={() => sendWhatsAppReminder(app)}
+                          title="Send WhatsApp Reminder"
+                          style={{ padding: '0.35rem', borderRadius: '8px' }}
+                        >
+                          <Send size={14} strokeWidth={2.5} />
+                        </button>
+                      )}
+                      <span className={`badge badge-${app.status === 'Completed' ? 'success' : 'primary'}`}>
+                        {app.status}
+                      </span>
+                    </div>
                   </div>
                 );
               })
