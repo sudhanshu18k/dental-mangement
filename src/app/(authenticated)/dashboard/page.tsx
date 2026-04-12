@@ -39,9 +39,9 @@ export default function DashboardPage() {
   const displayName = user?.fullName || user?.firstName || 'Clinic Owner';
 
   return (
-    <div className="animate-fade-in">
+    <div className="animate-fade-in pb-10">
       {/* Dashboard Header from Image */}
-      <section className="flex justify-between items-start mb-10">
+      <section className="flex flex-wrap justify-between items-start mb-8 gap-4">
         <div>
           <h1 className="headline-lg" style={{ fontSize: '2.2rem', marginBottom: '0.25rem' }}>
             Good morning, {displayName}! 👋
@@ -50,16 +50,16 @@ export default function DashboardPage() {
             Here&apos;s your clinic overview for today
           </p>
         </div>
-        <Link href="/appointments" className="btn btn-primary">
+        <Link href="/appointments" className="btn btn-primary shadow-lg border-2 border-white/20">
           <Plus size={18} strokeWidth={3} /> Book Appointment
         </Link>
       </section>
 
-      {/* Metric Grid: Row layout from image */}
-      <div className="grid grid-4 gap-6 mb-10">
+      {/* Metric Grid: Row layout with proper spacing */}
+      <div className="grid grid-4 gap-6 mb-12">
         {stats.map((stat, i) => (
           <div key={i} className="stat-card">
-            <div className="stat-icon">
+            <div className="stat-icon shadow-md">
               <stat.icon size={24} strokeWidth={2.5} />
             </div>
             <div className="stat-content">
@@ -72,7 +72,7 @@ export default function DashboardPage() {
 
       <div className="grid grid-2 gap-8">
         {/* Upcoming Appointments Layout */}
-        <div className="card">
+        <div className="card shadow-md">
           <header className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-2">
               <CalendarDays size={20} className="text-primary" />
@@ -82,7 +82,9 @@ export default function DashboardPage() {
 
           <div className="flex flex-col gap-3">
             {todayAppointments.length === 0 ? (
-              <div className="empty-state">No upcoming appointments.</div>
+              <div className="empty-state p-8 text-center text-on-surface-variant opacity-60 bg-surface-container-low rounded-xl">
+                No upcoming appointments.
+              </div>
             ) : (
               todayAppointments.slice(0, 5).map(app => {
                 const patient = patients.find(p => p.id === app.patientId);
@@ -106,7 +108,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Upcoming Follow-ups Layout */}
-        <div className="card">
+        <div className="card shadow-md">
           <header className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-2">
               <CalendarDays size={20} className="text-primary" />
@@ -116,7 +118,9 @@ export default function DashboardPage() {
 
           <div className="flex flex-col gap-3">
             {upcomingFollowUps.length === 0 ? (
-              <div className="empty-state">System clear. No pending follow-ups.</div>
+              <div className="empty-state p-8 text-center text-on-surface-variant opacity-60 bg-surface-container-low rounded-xl">
+                System clear. No pending follow-ups.
+              </div>
             ) : (
               upcomingFollowUps.slice(0, 4).map((fu, i) => (
                 <div key={i} className="schedule-item">

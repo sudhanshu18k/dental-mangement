@@ -28,9 +28,14 @@ export type Appointment = {
   treatments: Treatment[];
 };
 
+export type InvoiceItem = {
+  description: string;
+  amount: number;
+};
+
 export type Invoice = {
   id: string;
-  appointmentId: string;
+  appointmentId?: string;
   patientId: string;
   treatmentCost: number;
   discount: number;
@@ -38,4 +43,6 @@ export type Invoice = {
   finalAmount: number;
   status: 'Paid' | 'Pending';
   date: string;
+  items?: InvoiceItem[];
+  notes?: string;
 };
