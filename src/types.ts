@@ -11,6 +11,14 @@ export type Patient = {
   notes?: string;
 };
 
+export type RxItem = {
+  medicineName: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions: string;
+};
+
 export type Treatment = {
   id: string;
   toothNumber: string;
@@ -27,6 +35,8 @@ export type Appointment = {
   treatmentType: string;
   status: 'Scheduled' | 'Completed' | 'Cancelled';
   treatments: Treatment[];
+  prescription?: RxItem[];
+  notes?: string;
 };
 
 export type InvoiceItem = {

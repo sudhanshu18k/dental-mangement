@@ -3,7 +3,7 @@
 import React, { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useStore } from '@/store';
-import { Search, UserPlus, Edit2, Trash2, FileText, X, Phone, Mail, CalendarDays, IndianRupee, Clock, Stethoscope, TrendingUp, AlertCircle, ArrowRight, ExternalLink, CalendarPlus, Download } from 'lucide-react';
+import { Search, UserPlus, Edit2, Trash2, FileText, X, Phone, Mail, CalendarDays, IndianRupee, Clock, Stethoscope, TrendingUp, AlertCircle, ArrowRight, ExternalLink, CalendarPlus, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { Patient, Appointment } from '@/types';
 import ToothChart from '@/components/ToothChart';
 
@@ -53,6 +53,39 @@ export default function PatientsPage() {
   const filtered = patients.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase()) || p.phone.includes(search)
   );
+
+  /* ── Pagination ── */
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+
+  // Reset page when search changes
+  const handleSearchChange = (val: string) => {
+    setSearch(val);
+    setCurrentPage(1);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / rowsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIdx = (safePage - 1) * rowsPerPage;
+  const endIdx = startIdx + rowsPerPage;
+  const paginatedPatients = filtered.slice(startIdx, endIdx);
+
+  // Generate visible page numbers (max 7 around current)
+  const getPageNumbers = () => {
+    const pages: (number | '...')[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+    } else {
+      pages.push(1);
+      if (safePage > 3) pages.push('...');
+      const start = Math.max(2, safePage - 1);
+      const end = Math.min(totalPages - 1, safePage + 1);
+      for (let i = start; i <= end; i++) pages.push(i);
+      if (safePage < totalPages - 2) pages.push('...');
+      pages.push(totalPages);
+    }
+    return pages;
+  };
 
   const openAdd = () => { setCurrent({}); setModal('add'); };
   const openEdit = (p: Patient) => { setCurrent(p); setModal('edit'); };
@@ -176,7 +209,7 @@ export default function PatientsPage() {
             className="form-input search-input"
             placeholder="Search by name or phone number..."
             value={search}
-            onChange={e => setSearch(e.target.value)}
+            onChange={e => handleSearchChange(e.target.value)}
           />
         </div>
       </div>
@@ -196,10 +229,10 @@ export default function PatientsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {paginatedPatients.length === 0 ? (
                 <tr><td colSpan={6} className="empty-state">No patients found.</td></tr>
               ) : (
-                filtered.map(p => (
+                paginatedPatients.map(p => (
                   <tr key={p.id}>
                     <td>
                       <div
@@ -240,6 +273,99 @@ export default function PatientsPage() {
             </tbody>
           </table>
         </div>
+
+        {/* ── Pagination Bar ── */}
+        {filtered.length > 0 && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0.85rem 1.25rem',
+            borderTop: '1px solid var(--outline-variant)',
+            background: 'rgba(0,0,0,0.01)',
+            fontSize: '0.82rem',
+            color: 'var(--on-surface-variant)',
+            flexWrap: 'wrap',
+            gap: '0.75rem',
+          }}>
+            {/* Left: info */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span>Showing <strong style={{ color: 'var(--on-surface)' }}>{startIdx + 1}–{Math.min(endIdx, filtered.length)}</strong> of <strong style={{ color: 'var(--on-surface)' }}>{filtered.length}</strong> patients</span>
+              <span style={{ color: 'var(--outline-variant)' }}>|</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <span>Rows:</span>
+                <select
+                  value={rowsPerPage}
+                  onChange={e => { setRowsPerPage(Number(e.target.value)); setCurrentPage(1); }}
+                  style={{
+                    border: '1px solid var(--outline-variant)',
+                    borderRadius: '0.4rem',
+                    padding: '0.2rem 0.4rem',
+                    fontSize: '0.82rem',
+                    background: 'white',
+                    color: 'var(--on-surface)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Right: page navigation */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <button
+                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                disabled={safePage <= 1}
+                style={{
+                  width: '32px', height: '32px', borderRadius: '0.5rem',
+                  border: '1px solid var(--outline-variant)', background: 'white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: safePage <= 1 ? 'not-allowed' : 'pointer',
+                  opacity: safePage <= 1 ? 0.4 : 1,
+                  transition: 'all 0.15s',
+                }}
+              ><ChevronLeft size={16} /></button>
+
+              {getPageNumbers().map((page, idx) =>
+                page === '...' ? (
+                  <span key={`dots-${idx}`} style={{ padding: '0 0.3rem', color: 'var(--on-surface-variant)' }}>…</span>
+                ) : (
+                  <button
+                    key={page}
+                    onClick={() => setCurrentPage(page as number)}
+                    style={{
+                      minWidth: '32px', height: '32px', borderRadius: '0.5rem',
+                      border: safePage === page ? 'none' : '1px solid var(--outline-variant)',
+                      background: safePage === page ? 'var(--primary)' : 'white',
+                      color: safePage === page ? 'white' : 'var(--on-surface)',
+                      fontWeight: safePage === page ? 700 : 500,
+                      fontSize: '0.82rem',
+                      cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'all 0.15s',
+                    }}
+                  >{page}</button>
+                )
+              )}
+
+              <button
+                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                disabled={safePage >= totalPages}
+                style={{
+                  width: '32px', height: '32px', borderRadius: '0.5rem',
+                  border: '1px solid var(--outline-variant)', background: 'white',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  cursor: safePage >= totalPages ? 'not-allowed' : 'pointer',
+                  opacity: safePage >= totalPages ? 0.4 : 1,
+                  transition: 'all 0.15s',
+                }}
+              ><ChevronRight size={16} /></button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add/Edit Modal */}

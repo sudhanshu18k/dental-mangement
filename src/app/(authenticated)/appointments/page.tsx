@@ -2,9 +2,11 @@
 
 import React, { useState, useMemo } from 'react';
 import { useStore } from '@/store';
-import { CalendarDays, Plus, Edit2, Trash2, X, Stethoscope, ChevronLeft, ChevronRight, Clock, User, MessageCircle, Send, Search, ChevronDown, UserPlus } from 'lucide-react';
-import { Appointment, Treatment } from '@/types';
+import { CalendarDays, Plus, Edit2, Trash2, X, Stethoscope, ChevronLeft, ChevronRight, Clock, User, MessageCircle, Send, Search, ChevronDown, UserPlus, FileText, Printer, Trash } from 'lucide-react';
+import { Appointment, Treatment, RxItem } from '@/types';
 import ToothSelector from '@/components/ToothSelector';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 /* Temp fields for the initial treatment when creating */
 interface ModalState extends Partial<Appointment> {
@@ -42,6 +44,14 @@ export default function AppointmentsPage() {
   /* ── Patient search combobox state ── */
   const [patientSearch, setPatientSearch] = useState('');
   const [patientDropdownOpen, setPatientDropdownOpen] = useState(false);
+  const [showInlineAdd, setShowInlineAdd] = useState(false);
+  const [inlineNewName, setInlineNewName] = useState('');
+  const [inlineNewPhone, setInlineNewPhone] = useState('');
+
+  /* ── Prescription State ── */
+  const [prescriptionModal, setPrescriptionModal] = useState<string | null>(null);
+  const [rxItems, setRxItems] = useState<RxItem[]>([]);
+  const [rxNotes, setRxNotes] = useState('');
 
   const filteredPatients = useMemo(() => {
     if (!patientSearch.trim()) return patients;
@@ -124,15 +134,16 @@ export default function AppointmentsPage() {
     setPatientDropdownOpen(false);
     setApptModal('edit');
   };
-  const closeAppt = () => { setApptModal(null); setCurrent({}); setPatientSearch(''); setPatientDropdownOpen(false); };
+  const closeAppt = () => { setApptModal(null); setCurrent({}); setPatientSearch(''); setPatientDropdownOpen(false); setShowInlineAdd(false); };
 
   const handleAddNewPatient = () => {
-    if (!patientSearch.trim()) return;
+    const name = inlineNewName.trim() || patientSearch.trim();
+    if (!name) return;
     const newId = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
     const newPatient: any = {
       id: newId,
-      name: patientSearch.trim(),
-      phone: '',
+      name,
+      phone: inlineNewPhone.trim(),
       email: '',
       address: '',
       gender: 'Other',
@@ -143,8 +154,141 @@ export default function AppointmentsPage() {
     };
     addPatient(newPatient);
     setCurrent({ ...current, patientId: newId });
-    setPatientSearch(`${newPatient.name} (New)`);
+    setPatientSearch(`${newPatient.name} (${newPatient.phone || 'New'})`);
     setPatientDropdownOpen(false);
+    setShowInlineAdd(false);
+    setInlineNewName('');
+    setInlineNewPhone('');
+  };
+
+  const openPrescription = (appt: Appointment) => {
+    setPrescriptionModal(appt.id);
+    setRxItems(appt.prescription || []);
+    setRxNotes(appt.notes || '');
+  };
+
+  const addRxItem = () => {
+    setRxItems([...rxItems, { medicineName: '', dosage: '', frequency: '', duration: '', instructions: '' }]);
+  };
+
+  const updateRxItem = (idx: number, field: keyof RxItem, val: string) => {
+    const updated = [...rxItems];
+    updated[idx] = { ...updated[idx], [field]: val };
+    setRxItems(updated);
+  };
+
+  const removeRxItem = (idx: number) => {
+    setRxItems(rxItems.filter((_, i) => i !== idx));
+  };
+
+  const handleSavePrescription = () => {
+    if (!prescriptionModal) return;
+    updateAppointment(prescriptionModal, { prescription: rxItems, notes: rxNotes });
+    setPrescriptionModal(null);
+  };
+
+  const generatePrescriptionPDF = (appt: Appointment) => {
+    const patient = patients.find(p => p.id === appt.patientId);
+    if (!patient) return;
+
+    const doc = new jsPDF();
+    const docWidth = doc.internal.pageSize.getWidth();
+
+    // ── Clinic Branding ──
+    let clinicName = 'SmileSync Dental';
+    let clinicAddress = '';
+    let clinicPhone = '';
+    try {
+      const saved = localStorage.getItem('smilesync_clinic');
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.clinicName) clinicName = data.clinicName;
+        if (data.clinicAddress) clinicAddress = data.clinicAddress;
+        if (data.clinicPhone) clinicPhone = data.clinicPhone;
+      }
+    } catch { /* fallback */ }
+
+    doc.setFontSize(22);
+    doc.setTextColor(14, 165, 233); // var(--primary)
+    doc.text(clinicName.toUpperCase(), 15, 25);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.text(clinicAddress || 'Address not set', 15, 32);
+    doc.text(`Phone: ${clinicPhone || 'Not set'}`, 15, 37);
+    
+    doc.setDrawColor(14, 165, 233);
+    doc.setLineWidth(0.5);
+    doc.line(15, 42, docWidth - 15, 42);
+
+    // ── Patient Info ──
+    doc.setFontSize(11);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'bold');
+    doc.text('PATIENT INFO', 15, 52);
+    doc.setFont('helvetica', 'normal');
+    
+    doc.text(`Name: ${patient.name}`, 15, 58);
+    // Calculate age from DOB
+    const birthDate = new Date(patient.dob);
+    const today = new Date();
+    let age: string | number = 'N/A';
+    if (!isNaN(birthDate.getTime())) {
+      age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    }
+
+    doc.text(`Age/Sex: ${age} / ${patient.gender}`, 15, 63);
+    doc.text(`Date: ${new Date(appt.date).toLocaleDateString('en-IN')}`, docWidth - 50, 58);
+    
+    doc.setDrawColor(230, 230, 230);
+    doc.line(15, 68, docWidth - 15, 68);
+
+    // ── Prescription (Rx) Symbol ──
+    doc.setFontSize(28);
+    doc.setTextColor(14, 165, 233);
+    doc.text('Rx', 15, 80);
+
+    // ── Medicines Table ──
+    autoTable(doc, {
+      startY: 85,
+      head: [['Medicine', 'Dosage', 'Frequency', 'Duration', 'Instructions']],
+      body: (appt.prescription || []).map(item => [
+        item.medicineName,
+        item.dosage,
+        item.frequency,
+        item.duration,
+        item.instructions
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [14, 165, 233], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 4 },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 50 },
+        4: { cellWidth: 50 }
+      }
+    });
+
+    // ── Notes ──
+    const finalY = (doc as any).lastAutoTable.finalY + 15;
+    if (appt.notes) {
+      doc.setFontSize(11);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CLINICAL NOTES:', 15, finalY);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(10);
+      const splitNotes = doc.splitTextToSize(appt.notes, docWidth - 30);
+      doc.text(splitNotes, 15, finalY + 7);
+    }
+
+    // ── Footer ──
+    doc.setFontSize(9);
+    doc.setTextColor(150, 150, 150);
+    doc.text('Digital Signature: This is an electronically generated prescription.', 15, doc.internal.pageSize.getHeight() - 15);
+    doc.text(`Generated by SmileSync on ${new Date().toLocaleString()}`, docWidth - 85, doc.internal.pageSize.getHeight() - 15);
+
+    doc.save(`Prescription_${patient.name.replace(/\s+/g, '_')}_${appt.date}.pdf`);
   };
 
   const handleSaveAppt = (e: React.FormEvent) => {
@@ -152,12 +296,17 @@ export default function AppointmentsPage() {
     const treatmentsToSave = current.treatments || [];
 
     if (apptModal === 'add' && current.tempTeeth && current.tempTeeth.length > 0 && current.treatmentType) {
+      const totalCost = current.tempCost || 0;
+      const teethCount = current.tempTeeth.length;
+      const costPerTooth = Math.floor(totalCost / teethCount);
+      const remainder = totalCost - costPerTooth * teethCount;
+
       current.tempTeeth.forEach((tooth, idx) => {
         treatmentsToSave.push({
           id: 't' + Date.now() + idx,
           toothNumber: tooth,
-          notes: current.treatmentType!, // asserted safely here
-          cost: current.tempCost || 0,
+          notes: current.treatmentType!,
+          cost: costPerTooth + (idx === teethCount - 1 ? remainder : 0),
           followUpDate: current.tempFollowUpDate || ''
         });
       });
@@ -240,15 +389,10 @@ export default function AppointmentsPage() {
       `_Reply to this message if you need to reschedule._`
     ].filter(Boolean).join('\n');
 
-    // Normalize phone: remove spaces, dashes; add 91 if no country code
-    let phone = patient.phone.replace(/[\s-()]/g, '');
-    if (!phone.startsWith('+')) {
-      phone = phone.startsWith('91') ? phone : '91' + phone;
-    } else {
-      phone = phone.substring(1); // remove leading +
-    }
-
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    // Clean phone number and open WhatsApp
+    const cleanPhone = patient.phone.replace(/[^0-9+]/g, '');
+    const whatsappPhone = cleanPhone.startsWith('+') ? cleanPhone.slice(1) : (cleanPhone.startsWith('91') ? cleanPhone : '91' + cleanPhone);
+    const url = `https://wa.me/${whatsappPhone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
 
@@ -407,6 +551,9 @@ export default function AppointmentsPage() {
                       <button className="btn btn-icon btn-sm" onClick={() => setTreatmentModal(a.id)} title="Add treatment">
                         <Plus size={16} />
                       </button>
+                      <button className="btn btn-icon btn-sm" onClick={() => openPrescription(a)} title="Prescription / Notes" style={{ color: 'var(--primary)' }}>
+                        <FileText size={15} />
+                      </button>
                       {a.status === 'Scheduled' && patient?.phone && (
                         <button
                           className="btn btn-icon btn-sm btn-whatsapp-glass"
@@ -453,12 +600,12 @@ export default function AppointmentsPage() {
                   }} />
                   <input
                     className="form-input"
-                    placeholder="Search patient by name or phone..."
+                    placeholder="Search by name or phone..."
                     value={patientSearch}
                     onChange={e => {
                       setPatientSearch(e.target.value);
                       setPatientDropdownOpen(true);
-                      // clear selection if user edits
+                      setShowInlineAdd(false);
                       if (current.patientId) {
                         const sel = patients.find(p => p.id === current.patientId);
                         if (sel && e.target.value !== `${sel.name} (${sel.phone})`) {
@@ -485,7 +632,7 @@ export default function AppointmentsPage() {
                 {/* Dropdown */}
                 {patientDropdownOpen && (
                   <>
-                    <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setPatientDropdownOpen(false)} />
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => { setPatientDropdownOpen(false); setShowInlineAdd(false); }} />
                     <div style={{
                       position: 'absolute',
                       top: '100%',
@@ -495,103 +642,125 @@ export default function AppointmentsPage() {
                       border: '1px solid var(--outline-variant)',
                       borderRadius: '0.875rem',
                       boxShadow: '0 12px 32px rgba(0,0,0,0.1)',
-                      maxHeight: '280px',
+                      maxHeight: '320px',
                       overflowY: 'auto',
                       zIndex: 100,
                     }}>
-                      {filteredPatients.length === 0 ? (
-                        <div style={{ padding: '0.5rem' }}>
-                          <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>
-                            No patients found matching &quot;{patientSearch}&quot;
+                      {/* Patient list */}
+                      {filteredPatients.length === 0 && patientSearch && (
+                        <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>
+                          No patients found
+                        </div>
+                      )}
+                      {filteredPatients.map(p => (
+                        <div
+                          key={p.id}
+                          onClick={() => {
+                            setCurrent({ ...current, patientId: p.id });
+                            setPatientSearch(`${p.name} (${p.phone})`);
+                            setPatientDropdownOpen(false);
+                            setShowInlineAdd(false);
+                          }}
+                          style={{
+                            padding: '0.65rem 1rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.75rem',
+                            transition: 'background 0.15s',
+                            background: current.patientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent',
+                            borderBottom: '1px solid rgba(0,0,0,0.04)',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14, 165, 233, 0.06)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = current.patientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent')}
+                        >
+                          <div style={{
+                            width: '32px', height: '32px', borderRadius: '8px',
+                            background: 'linear-gradient(135deg, var(--primary), var(--secondary, #a855f7))',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            color: 'white', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0,
+                          }}>
+                            {p.name.charAt(0).toUpperCase()}
                           </div>
-                          <button
-                            type="button"
-                            onClick={handleAddNewPatient}
-                            style={{
-                              width: '100%',
-                              padding: '0.85rem',
-                              background: 'var(--primary-bg, rgba(14, 165, 233, 0.08))',
-                              border: '1px dashed var(--primary)',
-                              borderRadius: '0.6rem',
-                              color: 'var(--primary)',
-                              fontWeight: 700,
-                              fontSize: '0.88rem',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              gap: '0.6rem',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <UserPlus size={18} /> Add &quot;{patientSearch}&quot; as New Patient
-                          </button>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--on-surface)' }}>{p.name}</div>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>{p.phone || 'No phone'}</div>
+                          </div>
+                          {current.patientId === p.id && (
+                            <div style={{ color: 'var(--success)', flexShrink: 0, fontWeight: 700 }}>✓</div>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* ── Always-visible "Add new patient" ── */}
+                      {!showInlineAdd ? (
+                        <div
+                          onClick={() => { setShowInlineAdd(true); setInlineNewName(patientSearch); setInlineNewPhone(''); }}
+                          style={{
+                            padding: '0.75rem 1rem',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '0.65rem',
+                            borderTop: '1px solid var(--outline-variant)',
+                            color: 'var(--on-surface-variant)',
+                            transition: 'background 0.15s',
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14, 165, 233, 0.04)')}
+                          onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                        >
+                          <UserPlus size={16} style={{ color: 'var(--primary)' }} />
+                          <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>Add new patient</span>
                         </div>
                       ) : (
-                        <>
-                          {filteredPatients.map(p => (
-                            <div
-                              key={p.id}
-                              onClick={() => {
-                                setCurrent({ ...current, patientId: p.id });
-                                setPatientSearch(`${p.name} (${p.phone})`);
-                                setPatientDropdownOpen(false);
-                              }}
-                              style={{
-                                padding: '0.75rem 1rem',
-                                cursor: 'pointer',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.75rem',
-                                transition: 'background 0.15s',
-                                background: current.patientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent',
-                                borderBottom: '1px solid rgba(0,0,0,0.04)',
-                              }}
-                              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14, 165, 233, 0.06)')}
-                              onMouseLeave={e => (e.currentTarget.style.background = current.patientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent')}
-                            >
-                              <div style={{
-                                width: '34px', height: '34px', borderRadius: '10px',
-                                background: 'linear-gradient(135deg, var(--primary), var(--secondary, #a855f7))',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                color: 'white', fontWeight: 700, fontSize: '0.82rem', flexShrink: 0,
-                              }}>
-                                {p.name.charAt(0).toUpperCase()}
-                              </div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--on-surface)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--on-surface-variant)' }}>{p.phone || 'No phone'}</div>
-                              </div>
-                              {current.patientId === p.id && (
-                                <div style={{ color: 'var(--success)', flexShrink: 0 }}>✓</div>
-                              )}
+                        <div style={{
+                          padding: '0.85rem 1rem',
+                          borderTop: '1px solid var(--outline-variant)',
+                          background: 'rgba(14, 165, 233, 0.03)',
+                        }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.78rem', color: 'var(--primary)', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                            <UserPlus size={14} /> Quick Add Patient
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            <input
+                              className="form-input"
+                              placeholder="Patient name"
+                              value={inlineNewName}
+                              onChange={e => setInlineNewName(e.target.value)}
+                              autoFocus
+                              style={{ height: '2.2rem', fontSize: '0.85rem', borderRadius: '0.5rem' }}
+                            />
+                            <input
+                              className="form-input"
+                              placeholder="Phone number (optional)"
+                              value={inlineNewPhone}
+                              onChange={e => setInlineNewPhone(e.target.value)}
+                              style={{ height: '2.2rem', fontSize: '0.85rem', borderRadius: '0.5rem' }}
+                            />
+                            <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+                              <button
+                                type="button"
+                                onClick={() => setShowInlineAdd(false)}
+                                style={{
+                                  flex: 1, padding: '0.45rem', border: '1px solid var(--outline-variant)',
+                                  borderRadius: '0.5rem', background: 'white', cursor: 'pointer',
+                                  fontWeight: 600, fontSize: '0.8rem', color: 'var(--on-surface-variant)',
+                                }}
+                              >Cancel</button>
+                              <button
+                                type="button"
+                                onClick={handleAddNewPatient}
+                                disabled={!inlineNewName.trim()}
+                                style={{
+                                  flex: 1, padding: '0.45rem', border: 'none',
+                                  borderRadius: '0.5rem', background: 'var(--primary)', cursor: 'pointer',
+                                  fontWeight: 700, fontSize: '0.8rem', color: 'white',
+                                  opacity: inlineNewName.trim() ? 1 : 0.5,
+                                }}
+                              >Add & Select</button>
                             </div>
-                          ))}
-                          {patientSearch && !filteredPatients.some(p => p.name.toLowerCase() === patientSearch.toLowerCase()) && (
-                            <button
-                              type="button"
-                              onClick={handleAddNewPatient}
-                              style={{
-                                width: '100%',
-                                padding: '0.75rem 1rem',
-                                background: 'transparent',
-                                border: 'none',
-                                borderTop: '1px solid var(--outline-variant)',
-                                color: 'var(--primary)',
-                                fontWeight: 700,
-                                fontSize: '0.85rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '0.75rem',
-                                cursor: 'pointer',
-                                textAlign: 'left',
-                              }}
-                              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14, 165, 233, 0.04)')}
-                              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-                            >
-                              <UserPlus size={16} /> Add &quot;{patientSearch}&quot; as New Patient
-                            </button>
-                          )}
-                        </>
+                          </div>
+                        </div>
                       )}
                     </div>
                   </>
@@ -644,7 +813,7 @@ export default function AppointmentsPage() {
 
                   <div className="grid grid-2 gap-4">
                     <div className="form-group">
-                      <label className="appt-label">Cost (₹)</label>
+                      <label className="appt-label">Total Cost (₹)</label>
                       <input type="number" min="0" className="form-input" placeholder="0" value={current.tempCost || ''} onChange={e => setCurrent({ ...current, tempCost: Number(e.target.value) })} />
                     </div>
                     <div className="form-group">
@@ -696,6 +865,116 @@ export default function AppointmentsPage() {
                 <button type="submit" className="btn btn-primary">Add Treatment</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ═══ Prescription Modal ═══ */}
+      {prescriptionModal && (
+        <div className="modal-overlay" onClick={() => setPrescriptionModal(null)}>
+          <div className="modal-content" style={{ width: '800px', maxWidth: '95vw' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <h2 className="modal-title">Prescription & Clinical Notes</h2>
+                <p className="modal-subtitle">Add medications and visit details</p>
+              </div>
+              <button className="btn btn-icon" onClick={() => setPrescriptionModal(null)}><X size={20} /></button>
+            </div>
+
+            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', padding: '1.5rem' }}>
+              {/* Prescription Items */}
+              <div style={{ marginBottom: '2rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Plus size={18} style={{ color: 'var(--primary)' }} /> Medicines
+                  </h3>
+                  <button className="btn btn-sm btn-outline" onClick={addRxItem}>
+                    <Plus size={14} /> Add Medicine
+                  </button>
+                </div>
+
+                <div className="table-wrapper" style={{ border: '1px solid var(--outline-variant)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface-container-low)', textAlign: 'left' }}>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Medicine Name</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Dosage</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Frequency</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Duration</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Instructions</th>
+                        <th style={{ padding: '0.75rem', width: '40px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rxItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.88rem', background: 'white' }}>
+                            No medicines added. Click "Add Medicine" to start.
+                          </td>
+                        </tr>
+                      ) : (
+                        rxItems.map((item, idx) => (
+                          <tr key={idx} style={{ background: 'white', borderTop: '1px solid var(--outline-variant)' }}>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.medicineName} onChange={e => updateRxItem(idx, 'medicineName', e.target.value)} placeholder="Amoxicillin 500mg" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.dosage} onChange={e => updateRxItem(idx, 'dosage', e.target.value)} placeholder="1 tab" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.frequency} onChange={e => updateRxItem(idx, 'frequency', e.target.value)} placeholder="1-0-1 (After Food)" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.duration} onChange={e => updateRxItem(idx, 'duration', e.target.value)} placeholder="5 days" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.instructions} onChange={e => updateRxItem(idx, 'instructions', e.target.value)} placeholder="Avoid cold drinks" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <button className="btn btn-icon btn-sm btn-danger" onClick={() => removeRxItem(idx)}><Trash size={14} /></button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <FileText size={18} style={{ color: 'var(--primary)' }} /> Clinical Notes
+                </h3>
+                <textarea
+                  className="form-textarea"
+                  rows={4}
+                  value={rxNotes}
+                  onChange={e => setRxNotes(e.target.value)}
+                  placeholder="Record diagnosis, observations, or general advice for the patient..."
+                  style={{ borderRadius: '0.75rem', background: 'white' }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ borderTop: '1px solid var(--outline-variant)', padding: '1.25rem 1.5rem', display: 'flex', justifyContent: 'space-between', background: 'var(--surface-container-lowest)' }}>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button 
+                  className="btn btn-outline" 
+                  onClick={() => {
+                    const appt = appointments.find(a => a.id === prescriptionModal);
+                    if (appt) generatePrescriptionPDF({ ...appt, prescription: rxItems, notes: rxNotes });
+                  }}
+                  disabled={rxItems.length === 0 && !rxNotes}
+                >
+                  <Printer size={16} /> Print Prescription
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button className="btn btn-ghost" onClick={() => setPrescriptionModal(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSavePrescription}>Save Rx & Notes</button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -55,6 +55,9 @@ export default function BillingPage() {
   /* ── Manual Billing Patient Search ── */
   const [manualPatientSearch, setManualPatientSearch] = useState('');
   const [manualPatientDropdownOpen, setManualPatientDropdownOpen] = useState(false);
+  const [billingShowInlineAdd, setBillingShowInlineAdd] = useState(false);
+  const [billingNewName, setBillingNewName] = useState('');
+  const [billingNewPhone, setBillingNewPhone] = useState('');
 
   const filteredPatients = useMemo(() => {
     if (!manualPatientSearch.trim()) return patients;
@@ -66,12 +69,13 @@ export default function BillingPage() {
   }, [patients, manualPatientSearch]);
 
   const handleAddNewPatient = () => {
-    if (!manualPatientSearch.trim()) return;
+    const name = billingNewName.trim() || manualPatientSearch.trim();
+    if (!name) return;
     const newId = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
     const newPatient: any = {
       id: newId,
-      name: manualPatientSearch.trim(),
-      phone: '',
+      name,
+      phone: billingNewPhone.trim(),
       email: '',
       address: '',
       gender: 'Other',
@@ -82,8 +86,11 @@ export default function BillingPage() {
     };
     addPatient(newPatient);
     setManualPatientId(newId);
-    setManualPatientSearch(`${newPatient.name}`);
+    setManualPatientSearch(`${newPatient.name} (${newPatient.phone || 'New'})`);
     setManualPatientDropdownOpen(false);
+    setBillingShowInlineAdd(false);
+    setBillingNewName('');
+    setBillingNewPhone('');
   };
 
   /* ── Derived: appointment-based ── */
@@ -1073,7 +1080,7 @@ export default function BillingPage() {
                   {/* Dropdown */}
                   {manualPatientDropdownOpen && (
                     <>
-                      <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setManualPatientDropdownOpen(false)} />
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => { setManualPatientDropdownOpen(false); setBillingShowInlineAdd(false); }} />
                       <div style={{
                         position: 'absolute',
                         top: '100%',
@@ -1083,94 +1090,121 @@ export default function BillingPage() {
                         border: '1px solid var(--outline-variant)',
                         borderRadius: '0.875rem',
                         boxShadow: '0 12px 32px rgba(0,0,0,0.1)',
-                        maxHeight: '220px',
+                        maxHeight: '320px',
                         overflowY: 'auto',
                         zIndex: 100,
                       }}>
-                        {filteredPatients.length === 0 ? (
-                          <div style={{ padding: '0.5rem' }}>
-                            <div style={{ padding: '0.85rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>
-                              No results for &quot;{manualPatientSearch}&quot;
+                        {/* Patient list */}
+                        {filteredPatients.length === 0 && manualPatientSearch && (
+                          <div style={{ padding: '1rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>
+                            No patients found
+                          </div>
+                        )}
+                        {filteredPatients.map(p => (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              setManualPatientId(p.id);
+                              setManualPatientSearch(`${p.name} (${p.phone})`);
+                              setManualPatientDropdownOpen(false);
+                              setBillingShowInlineAdd(false);
+                            }}
+                            style={{
+                              padding: '0.65rem 1rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.75rem',
+                              transition: 'background 0.15s',
+                              background: manualPatientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent',
+                              borderBottom: '1px solid rgba(0,0,0,0.04)',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14, 165, 233, 0.06)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = manualPatientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent')}
+                          >
+                            <div style={{
+                              width: '32px', height: '32px', borderRadius: '8px',
+                              background: 'linear-gradient(135deg, var(--primary), var(--secondary, #a855f7))',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              color: 'white', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0,
+                            }}>{p.name.charAt(0).toUpperCase()}</div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 600, fontSize: '0.88rem', color: 'var(--on-surface)' }}>{p.name}</div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>{p.phone || 'No phone'}</div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={handleAddNewPatient}
-                              style={{
-                                width: '100%',
-                                padding: '0.85rem',
-                                background: 'rgba(14, 165, 233, 0.08)',
-                                border: '1px dashed var(--primary)',
-                                borderRadius: '0.6rem',
-                                color: 'var(--primary)',
-                                fontWeight: 700,
-                                fontSize: '0.88rem',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                gap: '0.6rem',
-                                cursor: 'pointer',
-                              }}
-                            >
-                              <UserPlus size={18} /> Add New Patient
-                            </button>
+                            {manualPatientId === p.id && <div style={{ color: 'var(--success)', fontWeight: 700 }}>✓</div>}
+                          </div>
+                        ))}
+
+                        {/* ── Always-visible "Add new patient" ── */}
+                        {!billingShowInlineAdd ? (
+                          <div
+                            onClick={() => { setBillingShowInlineAdd(true); setBillingNewName(manualPatientSearch); setBillingNewPhone(''); }}
+                            style={{
+                              padding: '0.75rem 1rem',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.65rem',
+                              borderTop: '1px solid var(--outline-variant)',
+                              color: 'var(--on-surface-variant)',
+                              transition: 'background 0.15s',
+                            }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(14, 165, 233, 0.04)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                          >
+                            <UserPlus size={16} style={{ color: 'var(--primary)' }} />
+                            <span style={{ fontSize: '0.88rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>Add new patient</span>
                           </div>
                         ) : (
-                          <>
-                            {filteredPatients.map(p => (
-                              <div
-                                key={p.id}
-                                onClick={() => {
-                                  setManualPatientId(p.id);
-                                  setManualPatientSearch(`${p.name} (${p.phone})`);
-                                  setManualPatientDropdownOpen(false);
-                                }}
-                                style={{
-                                  padding: '0.75rem 1rem',
-                                  cursor: 'pointer',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.75rem',
-                                  background: manualPatientId === p.id ? 'rgba(14, 165, 233, 0.08)' : 'transparent',
-                                  borderBottom: '1px solid rgba(0,0,0,0.04)',
-                                }}
-                              >
-                                <div style={{
-                                  width: '32px', height: '32px', borderRadius: '8px',
-                                  background: 'linear-gradient(135deg, var(--primary), #a855f7)',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                  color: 'white', fontWeight: 700, fontSize: '0.8rem', flexShrink: 0,
-                                }}>{p.name.charAt(0).toUpperCase()}</div>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--on-surface)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.name}</div>
-                                  <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>{p.phone || 'No phone'}</div>
-                                </div>
-                                {manualPatientId === p.id && <div style={{ color: 'var(--success)' }}>✓</div>}
+                          <div style={{
+                            padding: '0.85rem 1rem',
+                            borderTop: '1px solid var(--outline-variant)',
+                            background: 'rgba(14, 165, 233, 0.03)',
+                          }}>
+                            <div style={{ fontWeight: 700, fontSize: '0.78rem', color: 'var(--primary)', marginBottom: '0.6rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                              <UserPlus size={14} /> Quick Add Patient
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                              <input
+                                className="form-input"
+                                placeholder="Patient name"
+                                value={billingNewName}
+                                onChange={e => setBillingNewName(e.target.value)}
+                                autoFocus
+                                style={{ height: '2.2rem', fontSize: '0.85rem', borderRadius: '0.5rem' }}
+                              />
+                              <input
+                                className="form-input"
+                                placeholder="Phone number (optional)"
+                                value={billingNewPhone}
+                                onChange={e => setBillingNewPhone(e.target.value)}
+                                style={{ height: '2.2rem', fontSize: '0.85rem', borderRadius: '0.5rem' }}
+                              />
+                              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.2rem' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setBillingShowInlineAdd(false)}
+                                  style={{
+                                    flex: 1, padding: '0.45rem', border: '1px solid var(--outline-variant)',
+                                    borderRadius: '0.5rem', background: 'white', cursor: 'pointer',
+                                    fontWeight: 600, fontSize: '0.8rem', color: 'var(--on-surface-variant)',
+                                  }}
+                                >Cancel</button>
+                                <button
+                                  type="button"
+                                  onClick={handleAddNewPatient}
+                                  disabled={!billingNewName.trim()}
+                                  style={{
+                                    flex: 1, padding: '0.45rem', border: 'none',
+                                    borderRadius: '0.5rem', background: 'var(--primary)', cursor: 'pointer',
+                                    fontWeight: 700, fontSize: '0.8rem', color: 'white',
+                                    opacity: billingNewName.trim() ? 1 : 0.5,
+                                  }}
+                                >Add & Select</button>
                               </div>
-                            ))}
-                            {manualPatientSearch && !filteredPatients.some(p => p.name.toLowerCase() === manualPatientSearch.toLowerCase()) && (
-                              <button
-                                type="button"
-                                onClick={handleAddNewPatient}
-                                style={{
-                                  width: '100%',
-                                  padding: '0.75rem 1rem',
-                                  background: 'transparent',
-                                  border: 'none',
-                                  borderTop: '1px solid var(--outline-variant)',
-                                  color: 'var(--primary)',
-                                  fontWeight: 700,
-                                  fontSize: '0.82rem',
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: '0.75rem',
-                                  cursor: 'pointer',
-                                  textAlign: 'left',
-                                }}
-                              >
-                                <UserPlus size={16} /> Add &quot;{manualPatientSearch}&quot; as New Patient
-                              </button>
-                            )}
-                          </>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </>
