@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '@/store';
-import { IndianRupee, FileDown, Plus, X, Receipt, Trash2, Edit3, Search, SlidersHorizontal, ArrowUpDown, ArrowDown, ArrowUp, ChevronDown, UserPlus } from 'lucide-react';
+import { IndianRupee, FileDown, Plus, X, Receipt, Trash2, Edit3, Search, SlidersHorizontal, ArrowDown, ArrowUp, ChevronDown, UserPlus } from 'lucide-react';
 import { Invoice, InvoiceItem } from '@/types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -72,6 +72,7 @@ export default function BillingPage() {
     const name = billingNewName.trim() || manualPatientSearch.trim();
     if (!name) return;
     const newId = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const newPatient: any = {
       id: newId,
       name,
@@ -142,8 +143,8 @@ export default function BillingPage() {
   const handleGenerateFromAppt = (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedAppt) return;
-    // eslint-disable-next-line react-hooks/purity
     addInvoice({
+      // eslint-disable-next-line react-hooks/purity
       id: 'inv' + Date.now(),
       appointmentId: selectedAppt.id,
       patientId: selectedAppt.patientId,
@@ -161,8 +162,8 @@ export default function BillingPage() {
   const handleGenerateManual = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualPatientId || manualItems.every(i => !i.description && !i.amount)) return;
-    // eslint-disable-next-line react-hooks/purity
     addInvoice({
+      // eslint-disable-next-line react-hooks/purity
       id: 'inv' + Date.now(),
       patientId: manualPatientId,
       treatmentCost: manualSubtotal,

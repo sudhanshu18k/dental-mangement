@@ -2,8 +2,8 @@
 
 import { useUser } from '@clerk/nextjs';
 import { useStore } from '@/store';
-import { Users, CalendarDays, IndianRupee, Clock, ArrowUpRight, Plus, Send, MessageCircle } from 'lucide-react';
-import { format, isToday } from 'date-fns';
+import { Users, CalendarDays, IndianRupee, Clock, Plus, Send, MessageCircle } from 'lucide-react';
+import { isToday } from 'date-fns';
 import Link from 'next/link';
 
 export default function DashboardPage() {

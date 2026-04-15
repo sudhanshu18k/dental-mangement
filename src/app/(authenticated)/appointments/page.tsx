@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useStore } from '@/store';
-import { CalendarDays, Plus, Edit2, Trash2, X, Stethoscope, ChevronLeft, ChevronRight, Clock, User, MessageCircle, Send, Search, ChevronDown, UserPlus, FileText, Printer, Trash } from 'lucide-react';
+import { CalendarDays, Plus, Edit2, Trash2, X, Stethoscope, ChevronLeft, ChevronRight, Clock, MessageCircle, Send, Search, ChevronDown, UserPlus, FileText, Printer, Trash, Link as LinkIcon } from 'lucide-react';
 import { Appointment, Treatment, RxItem } from '@/types';
 import ToothSelector from '@/components/ToothSelector';
 import jsPDF from 'jspdf';
@@ -52,6 +52,7 @@ export default function AppointmentsPage() {
   const [prescriptionModal, setPrescriptionModal] = useState<string | null>(null);
   const [rxItems, setRxItems] = useState<RxItem[]>([]);
   const [rxNotes, setRxNotes] = useState('');
+  const [rxDiagnosis, setRxDiagnosis] = useState('');
 
   const filteredPatients = useMemo(() => {
     if (!patientSearch.trim()) return patients;
@@ -140,6 +141,7 @@ export default function AppointmentsPage() {
     const name = inlineNewName.trim() || patientSearch.trim();
     if (!name) return;
     const newId = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const newPatient: any = {
       id: newId,
       name,
@@ -165,6 +167,7 @@ export default function AppointmentsPage() {
     setPrescriptionModal(appt.id);
     setRxItems(appt.prescription || []);
     setRxNotes(appt.notes || '');
+    setRxDiagnosis(appt.diagnosis || '');
   };
 
   const addRxItem = () => {
@@ -183,7 +186,7 @@ export default function AppointmentsPage() {
 
   const handleSavePrescription = () => {
     if (!prescriptionModal) return;
-    updateAppointment(prescriptionModal, { prescription: rxItems, notes: rxNotes });
+    updateAppointment(prescriptionModal, { prescription: rxItems, notes: rxNotes, diagnosis: rxDiagnosis });
     setPrescriptionModal(null);
   };
 
@@ -208,51 +211,72 @@ export default function AppointmentsPage() {
       }
     } catch { /* fallback */ }
 
-    doc.setFontSize(22);
+    doc.setFontSize(24);
     doc.setTextColor(14, 165, 233); // var(--primary)
+    doc.setFont('helvetica', 'bold');
     doc.text(clinicName.toUpperCase(), 15, 25);
     
     doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
     doc.setTextColor(80, 80, 80);
-    doc.text(clinicAddress || 'Address not set', 15, 32);
-    doc.text(`Phone: ${clinicPhone || 'Not set'}`, 15, 37);
+    doc.text(clinicAddress || 'Address not set', 15, 31);
+    doc.text(`Contact: ${clinicPhone || 'Not set'}`, 15, 36);
     
     doc.setDrawColor(14, 165, 233);
-    doc.setLineWidth(0.5);
+    doc.setLineWidth(0.8);
     doc.line(15, 42, docWidth - 15, 42);
 
     // ── Patient Info ──
-    doc.setFontSize(11);
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Patient Name:`, 15, 52);
+    doc.text(`Age / Gender:`, 15, 57);
+    doc.text(`Date & Time:`, docWidth - 70, 52);
+
     doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'bold');
-    doc.text('PATIENT INFO', 15, 52);
-    doc.setFont('helvetica', 'normal');
+    doc.text(patient.name, 45, 52);
     
-    doc.text(`Name: ${patient.name}`, 15, 58);
     // Calculate age from DOB
     const birthDate = new Date(patient.dob);
     const today = new Date();
-    let age: string | number = 'N/A';
+    let computedAge: string | number = 'N/A';
     if (!isNaN(birthDate.getTime())) {
-      age = today.getFullYear() - birthDate.getFullYear();
+      computedAge = today.getFullYear() - birthDate.getFullYear();
       const m = today.getMonth() - birthDate.getMonth();
-      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) computedAge--;
     }
 
-    doc.text(`Age/Sex: ${age} / ${patient.gender}`, 15, 63);
-    doc.text(`Date: ${new Date(appt.date).toLocaleDateString('en-IN')}`, docWidth - 50, 58);
+    doc.text(`${computedAge} yrs / ${patient.gender}`, 45, 57);
+    doc.text(`${new Date(appt.date).toLocaleDateString('en-IN')} ${appt.time}`, docWidth - 42, 52);
     
-    doc.setDrawColor(230, 230, 230);
-    doc.line(15, 68, docWidth - 15, 68);
+    doc.setDrawColor(240, 240, 240);
+    doc.line(15, 65, docWidth - 15, 65);
+
+    let currentY = 75;
+
+    if (appt.diagnosis) {
+      doc.setFontSize(11);
+      doc.setTextColor(14, 165, 233);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DIAGNOSIS', 15, currentY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(10);
+      const splitDiag = doc.splitTextToSize(appt.diagnosis, docWidth - 30);
+      doc.text(splitDiag, 15, currentY + 7);
+      currentY += doc.getTextDimensions(splitDiag).h + 15;
+    }
 
     // ── Prescription (Rx) Symbol ──
-    doc.setFontSize(28);
+    doc.setFontSize(32);
     doc.setTextColor(14, 165, 233);
-    doc.text('Rx', 15, 80);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Rx', 15, currentY + 5);
 
     // ── Medicines Table ──
     autoTable(doc, {
-      startY: 85,
+      startY: currentY + 10,
       head: [['Medicine', 'Dosage', 'Frequency', 'Duration', 'Instructions']],
       body: (appt.prescription || []).map(item => [
         item.medicineName,
@@ -263,7 +287,7 @@ export default function AppointmentsPage() {
       ]),
       theme: 'grid',
       headStyles: { fillColor: [14, 165, 233], textColor: [255, 255, 255], fontStyle: 'bold' },
-      styles: { fontSize: 9, cellPadding: 4 },
+      styles: { fontSize: 9, cellPadding: 4, textColor: [50, 50, 50] },
       columnStyles: {
         0: { fontStyle: 'bold', cellWidth: 50 },
         4: { cellWidth: 50 }
@@ -271,22 +295,39 @@ export default function AppointmentsPage() {
     });
 
     // ── Notes ──
-    const finalY = (doc as any).lastAutoTable.finalY + 15;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const finalTableY = (doc as any).lastAutoTable.finalY;
     if (appt.notes) {
+      const notesY = finalTableY + 15;
       doc.setFontSize(11);
+      doc.setTextColor(14, 165, 233);
       doc.setFont('helvetica', 'bold');
-      doc.text('CLINICAL NOTES:', 15, finalY);
+      doc.text('CLINICAL NOTES', 15, notesY);
       doc.setFont('helvetica', 'normal');
+      doc.setTextColor(50, 50, 50);
       doc.setFontSize(10);
       const splitNotes = doc.splitTextToSize(appt.notes, docWidth - 30);
-      doc.text(splitNotes, 15, finalY + 7);
+      doc.text(splitNotes, 15, notesY + 7);
     }
 
+    // ── Signature Line ──
+    const signatureY = doc.internal.pageSize.getHeight() - 45;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.5);
+    doc.line(docWidth - 75, signatureY, docWidth - 15, signatureY);
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Doctor\'s Signature', docWidth - 75, signatureY + 6);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text('(Seal & Signature)', docWidth - 75, signatureY + 11);
+
     // ── Footer ──
-    doc.setFontSize(9);
-    doc.setTextColor(150, 150, 150);
-    doc.text('Digital Signature: This is an electronically generated prescription.', 15, doc.internal.pageSize.getHeight() - 15);
-    doc.text(`Generated by SmileSync on ${new Date().toLocaleString()}`, docWidth - 85, doc.internal.pageSize.getHeight() - 15);
+    doc.setFontSize(8);
+    doc.setTextColor(170, 170, 170);
+    doc.text('Digital Identity: This is a computer-generated document, valid without a physical signature.', 15, doc.internal.pageSize.getHeight() - 15);
+    doc.text(`Generated by SmileSync • ${new Date().toLocaleDateString('en-IN')}`, docWidth - 65, doc.internal.pageSize.getHeight() - 15);
 
     doc.save(`Prescription_${patient.name.replace(/\s+/g, '_')}_${appt.date}.pdf`);
   };
@@ -509,64 +550,96 @@ export default function AppointmentsPage() {
             <div className="cal-side-list">
               {dayAppointments.map(a => {
                 const patient = patients.find(p => p.id === a.patientId);
-                const statusColor = a.status === 'Completed' ? 'var(--success)' : a.status === 'Cancelled' ? 'var(--danger)' : 'var(--primary)';
-                const statusBg = a.status === 'Completed' ? 'var(--success-bg)' : a.status === 'Cancelled' ? 'var(--danger-bg)' : 'var(--info-bg)';
-                return (
-                  <div key={a.id} className="cal-appt-card" style={{ borderLeftColor: statusColor }}>
-                    <div className="cal-appt-top">
-                      <div className="cal-appt-time">
-                        <Clock size={14} /> {a.time}
-                      </div>
-                      <select
-                        className="cal-appt-status-chip"
-                        style={{ 
-                          background: statusBg, 
-                          color: statusColor,
-                          border: `1px solid ${statusColor}22`
-                        }}
-                        value={a.status}
-                        onChange={e => updateAppointment(a.id, { status: e.target.value as Appointment['status'] })}
-                      >
-                        <option value="Scheduled">Scheduled</option>
-                        <option value="Completed">Completed</option>
-                        <option value="Cancelled">Cancelled</option>
-                      </select>
-                    </div>
+                const apptCost = (a.treatments || []).reduce((s, t) => s + (t.cost || 0), 0);
+                const statusColor = a.status === 'Completed' ? '#10b981' : a.status === 'Cancelled' ? '#ef4444' : '#0ea5e9';
+                const statusBg = a.status === 'Completed' ? '#ecfdf5' : a.status === 'Cancelled' ? '#fef2f2' : '#f0f9ff';
+                const hasRx = (a.prescription && a.prescription.length > 0) || a.notes || a.diagnosis;
 
-                    <div className="cal-appt-info">
-                      <div className="cal-appt-patient">
-                        {patient?.name || 'Unknown Patient'}
+                return (
+                  <div key={a.id} className="cal-appt-card" style={{ 
+                    padding: '1.25rem',
+                    margin: '0.75rem 0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    borderLeft: `4px solid ${statusColor}`,
+                    background: 'white',
+                    borderRadius: '1rem',
+                    boxShadow: '0 2px 10px rgba(0,0,0,0.03)'
+                  }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.4rem' }}>
+                        <span style={{ fontWeight: 700, fontSize: '1.05rem', color: '#1e293b' }}>{patient?.name || 'Unknown'}</span>
+                        <select
+                          value={a.status}
+                          onChange={e => updateAppointment(a.id, { status: e.target.value as any })}
+                          style={{
+                            fontSize: '0.7rem',
+                            fontWeight: 700,
+                            padding: '0.15rem 0.6rem',
+                            borderRadius: '1rem',
+                            background: statusBg,
+                            color: statusColor,
+                            border: 'none',
+                            cursor: 'pointer',
+                            textTransform: 'lowercase'
+                          }}
+                        >
+                          <option value="Scheduled">scheduled</option>
+                          <option value="Completed">completed</option>
+                          <option value="Cancelled">cancelled</option>
+                        </select>
                       </div>
-                      {a.treatmentType && (
-                        <div className="cal-appt-treatment">
-                          <Stethoscope size={13} style={{ opacity: 0.7 }} /> {a.treatmentType}
+                      <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                        {a.treatmentType} • {a.date} at {a.time}
+                      </div>
+                      {a.treatments && a.treatments.length > 0 && (
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.2rem' }}>
+                          Tooth #{a.treatments.map(t => t.toothNumber).join(',')}
                         </div>
                       )}
                     </div>
 
-                    <div className="cal-appt-actions">
-                      <button className="btn btn-icon btn-sm" onClick={() => openEdit(a)} title="Edit">
-                        <Edit2 size={15} />
-                      </button>
-                      <button className="btn btn-icon btn-sm" onClick={() => setTreatmentModal(a.id)} title="Add treatment">
-                        <Plus size={16} />
-                      </button>
-                      <button className="btn btn-icon btn-sm" onClick={() => openPrescription(a)} title="Prescription / Notes" style={{ color: 'var(--primary)' }}>
-                        <FileText size={15} />
-                      </button>
-                      {a.status === 'Scheduled' && patient?.phone && (
-                        <button
-                          className="btn btn-icon btn-sm btn-whatsapp-glass"
-                          onClick={() => sendWhatsAppReminder(a)}
-                          title="Send WhatsApp Reminder"
-                          style={{ borderRadius: '10px' }}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                      <div style={{ fontWeight: 800, fontSize: '1.2rem', color: '#1e293b', minWidth: '60px', textAlign: 'right' }}>
+                        ₹{apptCost}
+                      </div>
+                      
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        {a.status === 'Completed' && (
+                          <button 
+                            className="btn btn-sm" 
+                            onClick={() => openPrescription(a)}
+                            style={{ 
+                              background: '#e0f2fe', 
+                              color: '#0ea5e9',
+                              padding: '0.4rem 0.85rem',
+                              borderRadius: '2rem',
+                              fontWeight: 600,
+                              fontSize: '0.78rem',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              border: 'none',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            <LinkIcon size={14} /> {hasRx ? 'View Rx' : 'Rx'}
+                          </button>
+                        )}
+                        <button 
+                          onClick={() => openEdit(a)}
+                          style={{ background: 'none', border: 'none', color: '#64748b', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', padding: '0.5rem' }}
                         >
-                          <Send size={15} strokeWidth={2.5} />
+                          Edit
                         </button>
-                      )}
-                      <button className="btn btn-icon btn-sm btn-danger" onClick={() => { if (confirm('Delete this appointment?')) deleteAppointment(a.id); }} title="Delete">
-                        <Trash2 size={15} />
-                      </button>
+                        <button 
+                          onClick={() => { if (confirm('Delete?')) deleteAppointment(a.id); }}
+                          style={{ background: 'none', border: 'none', color: '#f87171', fontSize: '0.85rem', fontWeight: 500, cursor: 'pointer', padding: '0.5rem' }}
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
@@ -872,8 +945,8 @@ export default function AppointmentsPage() {
       {/* ═══ Prescription Modal ═══ */}
       {prescriptionModal && (
         <div className="modal-overlay" onClick={() => setPrescriptionModal(null)}>
-          <div className="modal-content" style={{ width: '800px', maxWidth: '95vw' }} onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
+          <div className="modal-content" style={{ width: '800px', maxWidth: '95vw', padding: 0 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--outline-variant)' }}>
               <div>
                 <h2 className="modal-title">Prescription & Clinical Notes</h2>
                 <p className="modal-subtitle">Add medications and visit details</p>
@@ -882,6 +955,21 @@ export default function AppointmentsPage() {
             </div>
 
             <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', padding: '1.5rem' }}>
+              
+              {/* Diagnosis */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Stethoscope size={18} style={{ color: 'var(--primary)' }} /> Diagnosis
+                </h3>
+                <input
+                  className="form-input"
+                  style={{ borderRadius: '0.75rem', background: 'white' }}
+                  value={rxDiagnosis}
+                  onChange={e => setRxDiagnosis(e.target.value)}
+                  placeholder="e.g. Acute Pulpitis, Dental Caries, Gingivitis"
+                />
+              </div>
+
               {/* Prescription Items */}
               <div style={{ marginBottom: '2rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
@@ -909,7 +997,7 @@ export default function AppointmentsPage() {
                       {rxItems.length === 0 ? (
                         <tr>
                           <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.88rem', background: 'white' }}>
-                            No medicines added. Click "Add Medicine" to start.
+                            No medicines added. Click &quot;Add Medicine&quot; to start.
                           </td>
                         </tr>
                       ) : (
@@ -963,9 +1051,9 @@ export default function AppointmentsPage() {
                   className="btn btn-outline" 
                   onClick={() => {
                     const appt = appointments.find(a => a.id === prescriptionModal);
-                    if (appt) generatePrescriptionPDF({ ...appt, prescription: rxItems, notes: rxNotes });
+                    if (appt) generatePrescriptionPDF({ ...appt, prescription: rxItems, notes: rxNotes, diagnosis: rxDiagnosis });
                   }}
-                  disabled={rxItems.length === 0 && !rxNotes}
+                  disabled={rxItems.length === 0 && !rxNotes && !rxDiagnosis}
                 >
                   <Printer size={16} /> Print Prescription
                 </button>

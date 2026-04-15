@@ -509,25 +509,34 @@ tbody tr:last-child td { border-bottom: none; }
 
 /* Page Typography Contrast */
 .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 3.5rem;
+  flex-wrap: wrap;
+  gap: 1.5rem;
 }
 
+
 .page-title {
-  font-size: 3rem;
+  font-size: 3.5rem;
   font-weight: 800;
   color: var(--on-surface);
-  margin-bottom: 0.5rem;
-  line-height: 1.1;
+  margin-bottom: 0.75rem;
+  line-height: 1.15;
+  letter-spacing: -0.04em;
 }
 
 .page-subtitle {
-  font-size: 0.85rem;
+  font-size: 0.95rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.15em;
+  letter-spacing: 0.2em;
   color: var(--primary-container);
+  opacity: 0.8;
   font-family: 'Manrope', sans-serif;
 }
+
 
 /* Stat Metrics: Side-by-side with bubble icon */
 .stat-card {

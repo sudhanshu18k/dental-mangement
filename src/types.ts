@@ -36,6 +36,7 @@ export type Appointment = {
   status: 'Scheduled' | 'Completed' | 'Cancelled';
   treatments: Treatment[];
   prescription?: RxItem[];
+  diagnosis?: string;
   notes?: string;
 };
 

@@ -8,7 +8,7 @@ import {
   Check, AlertCircle, Users, CalendarDays, Receipt,
   Save, Phone, MapPin, CreditCard, Moon, Database, Upload, CloudOff, Cloud, Trash2
 } from 'lucide-react';
-import { Patient, Appointment, Invoice } from '@/types';
+// types imported elsewhere or unnecessary
 
 type TabId = 'profile' | 'security' | 'clinic' | 'appearance' | 'data';
 
@@ -191,7 +191,7 @@ export default function SettingsPage() {
   const handleMigrateLocalStorage = async () => {
     setMigrating(true);
     setMigrationResult(null);
-    let imported = { patients: 0, appointments: 0, invoices: 0 };
+    const imported = { patients: 0, appointments: 0, invoices: 0 };
 
     try {
       for (const [key, type] of Object.entries(LEGACY_KEYS_MAP)) {
@@ -256,7 +256,7 @@ export default function SettingsPage() {
       setMigrationResult(null);
       try {
         const data = JSON.parse(ev.target?.result as string);
-        let imported = { patients: 0, appointments: 0, invoices: 0 };
+        const imported = { patients: 0, appointments: 0, invoices: 0 };
 
         const pArr = data.patients || data.smilesync_patients || [];
         for (const item of pArr) {

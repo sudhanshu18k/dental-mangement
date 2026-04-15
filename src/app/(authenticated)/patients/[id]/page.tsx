@@ -8,8 +8,9 @@ import {
   FileText, IndianRupee, CalendarDays, Clock, Stethoscope,
   ArrowRight, CheckCircle2, Timer, FileDown,
   Receipt, Activity, CreditCard, Shield, StickyNote, Save,
+  X, Plus, Trash, Printer, Link as LinkIcon
 } from 'lucide-react';
-import { Invoice } from '@/types';
+import { Invoice, Appointment, RxItem } from '@/types';
 import ToothChart from '@/components/ToothChart';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -19,7 +20,7 @@ export default function PatientProfilePage() {
   const params = useParams();
   const router = useRouter();
   const patientId = params.id as string;
-  const { patients, appointments, invoices, updateInvoice, updatePatient } = useStore();
+  const { patients, appointments, invoices, updateInvoice, updatePatient, updateAppointment } = useStore();
 
   const patient = patients.find(p => p.id === patientId);
 
@@ -36,12 +37,201 @@ export default function PatientProfilePage() {
     setTimeout(() => setNotesSaved(false), 2000);
   };
 
-  // All appointments for this patient (sorted newest first)
+  // Prescription Modal State
+  const [prescriptionModal, setPrescriptionModal] = useState<string | null>(null);
+  const [rxItems, setRxItems] = useState<RxItem[]>([]);
+  const [rxNotes, setRxNotes] = useState('');
+  const [rxDiagnosis, setRxDiagnosis] = useState('');
+
   const patientAppointments = useMemo(() =>
     [...appointments.filter(a => a.patientId === patientId)]
       .sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time)),
     [patientId, appointments]
   );
+
+  const recentPrescriptionAppt = useMemo(() => {
+    return [...patientAppointments]
+      .filter(a => a.status === 'Completed' && ((a.prescription && a.prescription.length > 0) || a.diagnosis || a.notes))
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  }, [patientAppointments]);
+
+  const openPrescription = (appt: Appointment) => {
+    setPrescriptionModal(appt.id);
+    setRxItems(appt.prescription || []);
+    setRxNotes(appt.notes || '');
+    setRxDiagnosis(appt.diagnosis || '');
+  };
+
+  const addRxItem = () => {
+    setRxItems([...rxItems, { medicineName: '', dosage: '', frequency: '', duration: '', instructions: '' }]);
+  };
+
+  const updateRxItem = (idx: number, field: keyof RxItem, val: string) => {
+    const updated = [...rxItems];
+    updated[idx] = { ...updated[idx], [field]: val };
+    setRxItems(updated);
+  };
+
+  const removeRxItem = (idx: number) => {
+    setRxItems(rxItems.filter((_, i) => i !== idx));
+  };
+
+  const handleSavePrescription = () => {
+    if (!prescriptionModal) return;
+    updateAppointment(prescriptionModal, { prescription: rxItems, notes: rxNotes, diagnosis: rxDiagnosis });
+    setPrescriptionModal(null);
+  };
+
+  const generatePrescriptionPDF = (appt: Appointment) => {
+    if (!patient) return;
+
+    const doc = new jsPDF();
+    const docWidth = doc.internal.pageSize.getWidth();
+
+    // Clinic Branding
+    let clinicName = 'SmileSync Dental';
+    let clinicAddress = '';
+    let clinicPhone = '';
+    try {
+      const saved = localStorage.getItem('smilesync_clinic');
+      if (saved) {
+        const data = JSON.parse(saved);
+        if (data.clinicName) clinicName = data.clinicName;
+        if (data.clinicAddress) clinicAddress = data.clinicAddress;
+        if (data.clinicPhone) clinicPhone = data.clinicPhone;
+      }
+    } catch { /* fallback */ }
+
+    doc.setFontSize(22);
+    doc.setTextColor(14, 165, 233); // primary
+    doc.text(clinicName.toUpperCase(), 15, 25);
+    
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.text(clinicAddress || 'Address not set', 15, 32);
+    doc.text(`Phone: ${clinicPhone || 'Not set'}`, 15, 37);
+    
+    doc.setDrawColor(14, 165, 233);
+    doc.setFontSize(24);
+    doc.setTextColor(14, 165, 233); // var(--primary)
+    doc.setFont('helvetica', 'bold');
+    doc.text(clinicName.toUpperCase(), 15, 25);
+    
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 80);
+    doc.text(clinicAddress || 'Address not set', 15, 31);
+    doc.text(`Contact: ${clinicPhone || 'Not set'}`, 15, 36);
+    
+    doc.setDrawColor(14, 165, 233);
+    doc.setLineWidth(0.8);
+    doc.line(15, 42, docWidth - 15, 42);
+
+    // ── Patient Info ──
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Patient Name:`, 15, 52);
+    doc.text(`Age / Gender:`, 15, 57);
+    doc.text(`Date & Time:`, docWidth - 70, 52);
+
+    doc.setTextColor(0, 0, 0);
+    doc.setFont('helvetica', 'bold');
+    doc.text(patient.name, 45, 52);
+    
+    // Calculate age from DOB
+    const birthDate = new Date(patient.dob);
+    const today = new Date();
+    let age: string | number = 'N/A';
+    if (!isNaN(birthDate.getTime())) {
+      age = today.getFullYear() - birthDate.getFullYear();
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
+    }
+
+    doc.text(`${age} yrs / ${patient.gender}`, 45, 57);
+    doc.text(`${new Date(appt.date).toLocaleDateString('en-IN')} ${appt.time}`, docWidth - 42, 52);
+    
+    doc.setDrawColor(240, 240, 240);
+    doc.line(15, 65, docWidth - 15, 65);
+
+    let currentY = 75;
+
+    if (appt.diagnosis) {
+      doc.setFontSize(11);
+      doc.setTextColor(14, 165, 233);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DIAGNOSIS', 15, currentY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(10);
+      const splitDiag = doc.splitTextToSize(appt.diagnosis, docWidth - 30);
+      doc.text(splitDiag, 15, currentY + 7);
+      currentY += doc.getTextDimensions(splitDiag).h + 15;
+    }
+
+    // ── Prescription (Rx) Symbol ──
+    doc.setFontSize(32);
+    doc.setTextColor(14, 165, 233);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Rx', 15, currentY + 5);
+
+    // ── Medicines Table ──
+    autoTable(doc, {
+      startY: currentY + 10,
+      head: [['Medicine', 'Dosage', 'Frequency', 'Duration', 'Instructions']],
+      body: (appt.prescription || []).map(item => [
+        item.medicineName,
+        item.dosage,
+        item.frequency,
+        item.duration,
+        item.instructions
+      ]),
+      theme: 'grid',
+      headStyles: { fillColor: [14, 165, 233], textColor: [255, 255, 255], fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 4, textColor: [50, 50, 50] },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 50 },
+        4: { cellWidth: 50 }
+      }
+    });
+
+    // ── Notes ──
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const finalTableY = (doc as any).lastAutoTable.finalY;
+    if (appt.notes) {
+      const notesY = finalTableY + 15;
+      doc.setFontSize(11);
+      doc.setTextColor(14, 165, 233);
+      doc.setFont('helvetica', 'bold');
+      doc.text('CLINICAL NOTES', 15, notesY);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(50, 50, 50);
+      doc.setFontSize(10);
+      const splitNotes = doc.splitTextToSize(appt.notes, docWidth - 30);
+      doc.text(splitNotes, 15, notesY + 7);
+    }
+
+    // ── Signature Line ──
+    const signatureY = doc.internal.pageSize.getHeight() - 45;
+    doc.setDrawColor(200, 200, 200);
+    doc.setLineWidth(0.5);
+    doc.line(docWidth - 75, signatureY, docWidth - 15, signatureY);
+    doc.setFontSize(10);
+    doc.setTextColor(80, 80, 80);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Doctor\'s Signature', docWidth - 75, signatureY + 6);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.text('(Seal & Signature)', docWidth - 75, signatureY + 11);
+
+    // ── Footer ──
+    doc.setFontSize(8);
+    doc.setTextColor(170, 170, 170);
+    doc.text('Digital Identity: This is a computer-generated document, valid without a physical signature.', 15, doc.internal.pageSize.getHeight() - 15);
+    doc.text(`Generated by SmileSync • ${new Date().toLocaleDateString('en-IN')}`, docWidth - 65, doc.internal.pageSize.getHeight() - 15);
+
+    doc.save(`Prescription_${patient.name.replace(/\s+/g, '_')}_${appt.date}.pdf`);
+  };
 
   // Patient invoices
   const patientInvoices = useMemo(() =>
@@ -366,6 +556,65 @@ export default function PatientProfilePage() {
         {/* Left Column */}
         <div className="profile-col-left">
 
+          {/* ═══ Prominent Recent Prescription ═══ */}
+          {recentPrescriptionAppt ? (
+            <div className="card profile-section" style={{ border: '1px solid #e0f2fe', background: '#f8fafc' }}>
+              <h3 className="profile-section-title" style={{ color: '#0369a1' }}>
+                <LinkIcon size={16} /> Recent Prescription
+                <span style={{ marginLeft: 'auto', fontSize: '0.7rem', color: '#64748b', fontWeight: 500 }}>
+                  {fmt(recentPrescriptionAppt.date)}
+                </span>
+              </h3>
+              
+              {recentPrescriptionAppt.diagnosis && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 800, letterSpacing: '0.05em', marginBottom: '0.2rem' }}>Diagnosis</div>
+                  <div style={{ fontWeight: 600, color: '#1e293b', fontSize: '0.9rem' }}>{recentPrescriptionAppt.diagnosis}</div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginBottom: '1rem' }}>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', color: '#94a3b8', fontWeight: 800, letterSpacing: '0.05em' }}>Medications</div>
+                {(recentPrescriptionAppt.prescription || []).slice(0, 3).map((item, idx) => (
+                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', color: '#334155', background: 'white', padding: '0.4rem 0.6rem', borderRadius: '0.5rem', border: '1px solid #f1f5f9' }}>
+                    <span style={{ fontWeight: 600 }}>{item.medicineName}</span>
+                    <span style={{ color: '#64748b' }}>{item.dosage} • {item.frequency}</span>
+                  </div>
+                ))}
+                {(recentPrescriptionAppt.prescription || []).length > 3 && (
+                  <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontStyle: 'italic' }}>+ {(recentPrescriptionAppt.prescription || []).length - 3} more items</div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <button 
+                  className="btn btn-sm" 
+                  onClick={() => openPrescription(recentPrescriptionAppt)}
+                  style={{ flex: 1, background: '#e0f2fe', color: '#0ea5e9', fontWeight: 700, borderRadius: '0.75rem', border: 'none' }}
+                >
+                  <FileText size={14} /> Edit Rx
+                </button>
+                <button 
+                  className="btn btn-sm" 
+                  onClick={() => generatePrescriptionPDF(recentPrescriptionAppt)}
+                  style={{ flex: 1, background: 'white', color: '#64748b', border: '1px solid #e2e8f0', fontWeight: 600, borderRadius: '0.75rem' }}
+                >
+                  <Printer size={14} /> Print
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="card profile-section" style={{ border: '1px dashed #e2e8f0', background: 'rgba(255,255,255,0.5)', opacity: 0.8 }}>
+               <h3 className="profile-section-title" style={{ opacity: 0.6 }}>
+                <LinkIcon size={16} /> No Recent Rx
+              </h3>
+              <p style={{ fontSize: '0.8rem', color: '#94a3b8', textAlign: 'center', margin: '1rem 0' }}>
+                No prescriptions recorded yet.
+              </p>
+            </div>
+          )}
+
+
           {/* Medical Details */}
           {(patient.medicalHistory || (patient.allergies && patient.allergies !== 'None')) && (
             <div className="card profile-section">
@@ -521,6 +770,48 @@ export default function PatientProfilePage() {
                             <h4 className="timeline-title">{app.treatmentType || 'General Checkup'}</h4>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                            {app.status === 'Completed' && (
+                              <div style={{ display: 'flex', gap: '0.5rem', marginRight: '0.5rem' }}>
+                                <button 
+                                  className="btn btn-sm" 
+                                  onClick={() => openPrescription(app)} 
+                                  title="Write or Edit Prescription" 
+                                  style={{ 
+                                    color: '#0ea5e9', 
+                                    background: '#e0f2fe', 
+                                    padding: '0.4rem 0.85rem',
+                                    borderRadius: '2rem',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '0.35rem',
+                                    fontWeight: 700,
+                                    fontSize: '0.78rem',
+                                    border: 'none',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <LinkIcon size={14} />
+                                  {((app.prescription && app.prescription.length > 0) || app.notes || app.diagnosis) ? 'View Rx' : 'Rx'}
+                                </button>
+                                {((app.prescription && app.prescription.length > 0) || app.notes || app.diagnosis) && (
+                                  <button
+                                    className="btn btn-icon btn-sm"
+                                    onClick={() => generatePrescriptionPDF(app)}
+                                    title="Download Rx PDF"
+                                    style={{
+                                      color: '#64748b',
+                                      background: 'var(--surface-container-high)',
+                                      border: '1px solid var(--outline-variant)',
+                                      borderRadius: '50%',
+                                      width: '32px',
+                                      height: '32px'
+                                    }}
+                                  >
+                                    <FileDown size={14} />
+                                  </button>
+                                )}
+                              </div>
+                            )}
                             {apptCost > 0 && <span className="timeline-cost">₹{apptCost.toLocaleString()}</span>}
                             <span className={`badge badge-${app.status === 'Completed' ? 'success' : app.status === 'Cancelled' ? 'danger' : 'primary'}`}>
                               {app.status}
@@ -620,6 +911,131 @@ export default function PatientProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* ═══ Prescription Modal ═══ */}
+      {prescriptionModal && (
+        <div className="modal-overlay" onClick={() => setPrescriptionModal(null)}>
+          <div className="modal-content" style={{ width: '800px', maxWidth: '95vw', padding: 0 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header" style={{ padding: '1.5rem', borderBottom: '1px solid var(--outline-variant)' }}>
+              <div>
+                <h2 className="modal-title">Prescription & Clinical Notes</h2>
+                <p className="modal-subtitle">Add medications and visit details</p>
+              </div>
+              <button className="btn btn-icon" onClick={() => setPrescriptionModal(null)}><X size={20} /></button>
+            </div>
+
+            <div className="modal-body" style={{ maxHeight: '70vh', overflowY: 'auto', padding: '1.5rem' }}>
+              
+              {/* Diagnosis */}
+              <div style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Stethoscope size={18} style={{ color: 'var(--primary)' }} /> Diagnosis
+                </h3>
+                <input
+                  className="form-input"
+                  style={{ borderRadius: '0.75rem', background: 'white' }}
+                  value={rxDiagnosis}
+                  onChange={e => setRxDiagnosis(e.target.value)}
+                  placeholder="e.g. Acute Pulpitis, Dental Caries, Gingivitis"
+                />
+              </div>
+
+              {/* Prescription Items */}
+              <div style={{ marginBottom: '2rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <Plus size={18} style={{ color: 'var(--primary)' }} /> Medicines
+                  </h3>
+                  <button className="btn btn-sm btn-outline" onClick={addRxItem}>
+                    <Plus size={14} /> Add Medicine
+                  </button>
+                </div>
+
+                <div className="table-wrapper" style={{ border: '1px solid var(--outline-variant)', borderRadius: '0.75rem', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface-container-low)', textAlign: 'left' }}>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Medicine Name</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Dosage</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Frequency</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Duration</th>
+                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Instructions</th>
+                        <th style={{ padding: '0.75rem', width: '40px' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rxItems.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: 'var(--on-surface-variant)', fontSize: '0.88rem', background: 'white' }}>
+                            No medicines added. Click &quot;Add Medicine&quot; to start.
+                          </td>
+                        </tr>
+                      ) : (
+                        rxItems.map((item, idx) => (
+                          <tr key={idx} style={{ background: 'white', borderTop: '1px solid var(--outline-variant)' }}>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.medicineName} onChange={e => updateRxItem(idx, 'medicineName', e.target.value)} placeholder="Amoxicillin 500mg" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.dosage} onChange={e => updateRxItem(idx, 'dosage', e.target.value)} placeholder="1 tab" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.frequency} onChange={e => updateRxItem(idx, 'frequency', e.target.value)} placeholder="1-0-1 (After Food)" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.duration} onChange={e => updateRxItem(idx, 'duration', e.target.value)} placeholder="5 days" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.instructions} onChange={e => updateRxItem(idx, 'instructions', e.target.value)} placeholder="Avoid cold drinks" />
+                            </td>
+                            <td style={{ padding: '0.5rem' }}>
+                              <button className="btn btn-icon btn-sm btn-danger" onClick={() => removeRxItem(idx)}><Trash size={14} /></button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <FileText size={18} style={{ color: 'var(--primary)' }} /> Clinical Notes
+                </h3>
+                <textarea
+                  className="form-textarea"
+                  rows={4}
+                  value={rxNotes}
+                  onChange={e => setRxNotes(e.target.value)}
+                  placeholder="Record diagnosis, observations, or general advice for the patient..."
+                  style={{ borderRadius: '0.75rem', background: 'white' }}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ borderTop: '1px solid var(--outline-variant)', padding: '1.25rem 1.5rem', display: 'flex', justifyContent: 'space-between', background: 'var(--surface-container-lowest)', borderBottomLeftRadius: '1.5rem', borderBottomRightRadius: '1.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button 
+                  className="btn btn-outline" 
+                  onClick={() => {
+                    const appt = appointments.find(a => a.id === prescriptionModal);
+                    if (appt) generatePrescriptionPDF({ ...appt, prescription: rxItems, notes: rxNotes, diagnosis: rxDiagnosis });
+                  }}
+                  disabled={rxItems.length === 0 && !rxNotes && !rxDiagnosis}
+                >
+                  <Printer size={16} /> Print Prescription
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button className="btn btn-ghost" onClick={() => setPrescriptionModal(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSavePrescription}>Save Rx & Notes</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
