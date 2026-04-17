@@ -34,6 +34,7 @@ export default function AppointmentsPage() {
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(toDateStr(now.getFullYear(), now.getMonth(), now.getDate()));
+  const [viewMode, setViewMode] = useState<'calendar' | 'history'>('calendar');
 
   /* ── Modal state ── */
   const [apptModal, setApptModal] = useState<'add' | 'edit' | null>(null);
@@ -455,6 +456,17 @@ export default function AppointmentsPage() {
   const selDateObj = new Date(+selParts[0], +selParts[1] - 1, +selParts[2]);
   const selLabel = selDateObj.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 
+  /* ── History Pagination ── */
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyPerPage = 15;
+  const sortedAppointments = useMemo(() => {
+    return [...appointments].sort((a, b) => b.date.localeCompare(a.date) || b.time.localeCompare(a.time));
+  }, [appointments]);
+
+  const historyStartIdx = (historyPage - 1) * historyPerPage;
+  const historyPaginated = sortedAppointments.slice(historyStartIdx, historyStartIdx + historyPerPage);
+  const historyTotalPages = Math.max(1, Math.ceil(sortedAppointments.length / historyPerPage));
+
   return (
     <div>
       {/* Page Header */}
@@ -463,13 +475,146 @@ export default function AppointmentsPage() {
           <h1 className="page-title">Appointments</h1>
           <p className="page-subtitle">{appointments.length} total appointments</p>
         </div>
-        <button className="btn btn-primary" onClick={() => openAdd()}>
-          <Plus size={18} /> New Appointment
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem' }}>
+          <button className="btn" style={{ background: 'white', border: '1px solid rgba(0,0,0,0.06)' }} onClick={() => setViewMode(viewMode === 'calendar' ? 'history' : 'calendar')}>
+            {viewMode === 'calendar' ? <><Clock size={17} /> View History</> : <><CalendarDays size={17} /> Calendar View</>}
+          </button>
+          <button className="btn btn-primary" onClick={() => openAdd()}>
+            <Plus size={18} /> New Appointment
+          </button>
+        </div>
       </div>
 
-      {/* Calendar + Side panel layout */}
-      <div className="cal-layout">
+      {viewMode === 'history' ? (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="table-wrapper" style={{ border: 'none', borderRadius: 0 }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Date & Time</th>
+                  <th>Patient</th>
+                  <th>Treatment</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historyPaginated.length === 0 ? (
+                  <tr><td colSpan={5} className="empty-state">No appointments found.</td></tr>
+                ) : (
+                  historyPaginated.map(a => {
+                    const patient = patients.find(p => p.id === a.patientId);
+                    const statusColor = a.status === 'Completed' ? '#10b981' : a.status === 'Cancelled' ? '#ef4444' : '#0ea5e9';
+                    const statusBg = a.status === 'Completed' ? '#ecfdf5' : a.status === 'Cancelled' ? '#fef2f2' : '#f0f9ff';
+                    const hasRx = (a.prescription && a.prescription.length > 0) || a.notes || a.diagnosis;
+
+                    return (
+                      <tr key={a.id}>
+                        <td>
+                          <div style={{ fontWeight: 600, color: 'var(--on-surface)' }}>{new Date(a.date).toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' })}</div>
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{a.time}</div>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 600, color: 'var(--primary)' }}>{patient?.name || 'Unknown'}</div>
+                          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>{patient?.phone}</div>
+                        </td>
+                        <td>{a.treatmentType || '-'}</td>
+                        <td>
+                          <select
+                            value={a.status}
+                            onChange={e => updateAppointment(a.id, { status: e.target.value as any })}
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              padding: '0.2rem 0.6rem',
+                              borderRadius: '1rem',
+                              background: statusBg,
+                              color: statusColor,
+                              border: 'none',
+                              cursor: 'pointer',
+                              textTransform: 'capitalize'
+                            }}
+                          >
+                            <option value="Scheduled">Scheduled</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Cancelled">Cancelled</option>
+                          </select>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: '0.4rem' }}>
+                            {a.status === 'Completed' && (
+                              <button 
+                                className="btn btn-sm" 
+                                onClick={() => openPrescription(a)}
+                                style={{ 
+                                  background: '#e0f2fe', 
+                                  color: '#0ea5e9',
+                                  padding: '0.3rem 0.6rem',
+                                  borderRadius: '0.5rem',
+                                  fontWeight: 600,
+                                  fontSize: '0.78rem',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: '0.35rem',
+                                  border: 'none',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                <LinkIcon size={14} /> {hasRx ? 'Rx' : 'Add Rx'}
+                              </button>
+                            )}
+                            <button className="btn btn-icon" style={{ color: 'var(--warning)' }} title="Edit" onClick={() => openEdit(a)}><Edit2 size={16} /></button>
+                            <button className="btn btn-icon btn-danger" title="Delete" onClick={() => { if(confirm('Delete appointment?')) deleteAppointment(a.id); }}><Trash2 size={16} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Pagination */}
+          {sortedAppointments.length > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '0.85rem 1.25rem', borderTop: '1px solid var(--outline-variant)',
+              background: 'rgba(0,0,0,0.01)', fontSize: '0.82rem', color: 'var(--on-surface-variant)',
+            }}>
+              <div>
+                Showing <strong style={{ color: 'var(--on-surface)' }}>{historyStartIdx + 1}–{Math.min(historyStartIdx + historyPerPage, sortedAppointments.length)}</strong> of <strong style={{ color: 'var(--on-surface)' }}>{sortedAppointments.length}</strong> appointments
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <button
+                  onClick={() => setHistoryPage(p => Math.max(1, p - 1))}
+                  disabled={historyPage <= 1}
+                  style={{
+                    width: '32px', height: '32px', borderRadius: '0.5rem',
+                    border: '1px solid var(--outline-variant)', background: 'white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: historyPage <= 1 ? 'not-allowed' : 'pointer',
+                    opacity: historyPage <= 1 ? 0.4 : 1,
+                  }}
+                ><ChevronLeft size={16} /></button>
+                <div style={{ padding: '0 0.5rem', fontWeight: 600 }}>Page {historyPage} of {historyTotalPages}</div>
+                <button
+                  onClick={() => setHistoryPage(p => Math.min(historyTotalPages, p + 1))}
+                  disabled={historyPage >= historyTotalPages}
+                  style={{
+                    width: '32px', height: '32px', borderRadius: '0.5rem',
+                    border: '1px solid var(--outline-variant)', background: 'white',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    cursor: historyPage >= historyTotalPages ? 'not-allowed' : 'pointer',
+                    opacity: historyPage >= historyTotalPages ? 0.4 : 1,
+                  }}
+                ><ChevronRight size={16} /></button>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="cal-layout">
         {/* ═══ Calendar Card ═══ */}
         <div className="cal-card">
           {/* Month nav */}
@@ -648,6 +793,7 @@ export default function AppointmentsPage() {
           )}
         </div>
       </div>
+      )}
 
       {/* ═══ Appointment Modal ═══ */}
       {apptModal && (
@@ -981,16 +1127,16 @@ export default function AppointmentsPage() {
                   </button>
                 </div>
 
-                <div className="table-wrapper" style={{ border: '1px solid var(--outline-variant)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div className="table-wrapper" style={{ border: '1px solid var(--outline-variant)', borderRadius: '0.75rem', overflowX: 'auto', background: 'white' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: '750px' }}>
                     <thead>
                       <tr style={{ background: 'var(--surface-container-low)', textAlign: 'left' }}>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Medicine Name</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Dosage</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Frequency</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Duration</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Instructions</th>
-                        <th style={{ padding: '0.75rem', width: '40px' }}></th>
+                        <th style={{ padding: '0.75rem 0.5rem', width: '50px', textAlign: 'center' }}></th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '28%', color: 'var(--on-surface-variant)' }}>MEDICINE NAME</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '15%', color: 'var(--on-surface-variant)' }}>DOSAGE</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '15%', color: 'var(--on-surface-variant)' }}>FREQ</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '12%', color: 'var(--on-surface-variant)' }}>DUR</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '25%', color: 'var(--on-surface-variant)' }}>NOTES</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1003,23 +1149,41 @@ export default function AppointmentsPage() {
                       ) : (
                         rxItems.map((item, idx) => (
                           <tr key={idx} style={{ background: 'white', borderTop: '1px solid var(--outline-variant)' }}>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.medicineName} onChange={e => updateRxItem(idx, 'medicineName', e.target.value)} placeholder="Amoxicillin 500mg" />
+                            <td style={{ padding: '0.35rem', textAlign: 'center' }}>
+                              <button 
+                                type="button"
+                                onClick={() => removeRxItem(idx)}
+                                style={{ 
+                                  width: '28px',
+                                  height: '28px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background: 'rgba(239, 68, 68, 0.1)', 
+                                  color: 'var(--danger)', 
+                                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                                  borderRadius: '0.4rem',
+                                  cursor: 'pointer',
+                                }}
+                                title="Remove row"
+                              >
+                                <X size={14} strokeWidth={3} />
+                              </button>
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.dosage} onChange={e => updateRxItem(idx, 'dosage', e.target.value)} placeholder="1 tab" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.medicineName} onChange={e => updateRxItem(idx, 'medicineName', e.target.value)} placeholder="Medicine Name" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.frequency} onChange={e => updateRxItem(idx, 'frequency', e.target.value)} placeholder="1-0-1 (After Food)" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.dosage} onChange={e => updateRxItem(idx, 'dosage', e.target.value)} placeholder="1 tab" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.duration} onChange={e => updateRxItem(idx, 'duration', e.target.value)} placeholder="5 days" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.frequency} onChange={e => updateRxItem(idx, 'frequency', e.target.value)} placeholder="1-0-1" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.instructions} onChange={e => updateRxItem(idx, 'instructions', e.target.value)} placeholder="Avoid cold drinks" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.duration} onChange={e => updateRxItem(idx, 'duration', e.target.value)} placeholder="5d" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <button className="btn btn-icon btn-sm btn-danger" onClick={() => removeRxItem(idx)}><Trash size={14} /></button>
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.instructions} onChange={e => updateRxItem(idx, 'instructions', e.target.value)} placeholder="Eat after food" />
                             </td>
                           </tr>
                         ))

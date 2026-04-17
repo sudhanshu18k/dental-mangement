@@ -129,7 +129,10 @@ export default function BillingPage() {
   /* ── Manual: add/remove/update items ── */
   const addManualItem = () => setManualItems([...manualItems, { description: '', amount: 0 }]);
   const removeManualItem = (idx: number) => {
-    if (manualItems.length <= 1) return;
+    if (manualItems.length === 1) {
+      setManualItems([{ description: '', amount: 0 }]);
+      return;
+    }
     setManualItems(manualItems.filter((_, i) => i !== idx));
   };
   const updateManualItem = (idx: number, field: keyof InvoiceItem, value: string | number) => {
@@ -813,7 +816,9 @@ export default function BillingPage() {
       {invoiceModal && (
         <div className="modal-overlay" onClick={resetModal} style={{ background: 'var(--scrim-color, rgba(15, 23, 42, 0.4))', backdropFilter: 'blur(8px)' }}>
           <div className="modal-content" style={{ 
-            width: '640px', 
+            width: '100%',
+            maxWidth: '640px',
+            margin: '1rem',
             maxHeight: '92vh', 
             overflow: 'auto', 
             borderRadius: '2rem',
@@ -1246,27 +1251,26 @@ export default function BillingPage() {
                         <button
                           type="button"
                           onClick={() => removeManualItem(idx)}
-                          disabled={manualItems.length <= 1}
                           style={{ 
-                            width: '40px',
                             height: '40px',
-                            minWidth: '40px',
                             flexShrink: 0,
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            background: manualItems.length <= 1 ? 'var(--surface-container)' : 'rgba(239, 68, 68, 0.1)',
-                            border: `1px solid ${manualItems.length <= 1 ? 'var(--outline-variant)' : 'rgba(239, 68, 68, 0.2)'}`,
+                            gap: '0.4rem',
+                            background: 'rgba(239, 68, 68, 0.1)',
+                            border: '1px solid rgba(239, 68, 68, 0.2)',
                             borderRadius: '0.75rem', 
                             color: 'var(--danger)',
-                            cursor: manualItems.length <= 1 ? 'not-allowed' : 'pointer',
-                            opacity: manualItems.length <= 1 ? 0.35 : 1,
+                            cursor: 'pointer',
                             transition: 'all 0.2s',
-                            padding: 0,
+                            padding: '0 0.8rem',
+                            fontWeight: 600,
+                            fontSize: '0.8rem',
                           }}
-                          title="Remove item"
+                          title={manualItems.length <= 1 ? "Clear item" : "Remove item"}
                         >
-                          <Trash2 size={16} />
+                          <Trash2 size={14} /> <span className="hide-on-mobile">Remove</span>
                         </button>
                       </div>
                     ))}

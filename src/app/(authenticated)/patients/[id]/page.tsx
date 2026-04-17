@@ -951,16 +951,16 @@ export default function PatientProfilePage() {
                   </button>
                 </div>
 
-                <div className="table-wrapper" style={{ border: '1px solid var(--outline-variant)', borderRadius: '0.75rem', overflow: 'hidden' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <div className="table-wrapper" style={{ border: '1px solid var(--outline-variant)', borderRadius: '0.75rem', overflowX: 'auto', background: 'white' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: '750px' }}>
                     <thead>
                       <tr style={{ background: 'var(--surface-container-low)', textAlign: 'left' }}>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Medicine Name</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Dosage</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Frequency</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Duration</th>
-                        <th style={{ padding: '0.75rem', fontSize: '0.75rem', fontWeight: 700 }}>Instructions</th>
-                        <th style={{ padding: '0.75rem', width: '40px' }}></th>
+                        <th style={{ padding: '0.75rem 0.5rem', width: '50px', textAlign: 'center' }}></th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '28%', color: 'var(--on-surface-variant)' }}>MEDICINE NAME</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '15%', color: 'var(--on-surface-variant)' }}>DOSAGE</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '15%', color: 'var(--on-surface-variant)' }}>FREQ</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '12%', color: 'var(--on-surface-variant)' }}>DUR</th>
+                        <th style={{ padding: '0.75rem 0.5rem', fontSize: '0.75rem', fontWeight: 800, width: '25%', color: 'var(--on-surface-variant)' }}>NOTES</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -973,23 +973,41 @@ export default function PatientProfilePage() {
                       ) : (
                         rxItems.map((item, idx) => (
                           <tr key={idx} style={{ background: 'white', borderTop: '1px solid var(--outline-variant)' }}>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.medicineName} onChange={e => updateRxItem(idx, 'medicineName', e.target.value)} placeholder="Amoxicillin 500mg" />
+                            <td style={{ padding: '0.35rem', textAlign: 'center' }}>
+                              <button 
+                                type="button"
+                                onClick={() => removeRxItem(idx)}
+                                style={{ 
+                                  width: '28px',
+                                  height: '28px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  background: 'rgba(239, 68, 68, 0.1)', 
+                                  color: 'var(--danger)', 
+                                  border: '1px solid rgba(239, 68, 68, 0.2)',
+                                  borderRadius: '0.4rem',
+                                  cursor: 'pointer',
+                                }}
+                                title="Remove row"
+                              >
+                                <X size={14} strokeWidth={3} />
+                              </button>
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.dosage} onChange={e => updateRxItem(idx, 'dosage', e.target.value)} placeholder="1 tab" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.medicineName} onChange={e => updateRxItem(idx, 'medicineName', e.target.value)} placeholder="Medicine Name" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.frequency} onChange={e => updateRxItem(idx, 'frequency', e.target.value)} placeholder="1-0-1 (After Food)" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.dosage} onChange={e => updateRxItem(idx, 'dosage', e.target.value)} placeholder="1 tab" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.duration} onChange={e => updateRxItem(idx, 'duration', e.target.value)} placeholder="5 days" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.frequency} onChange={e => updateRxItem(idx, 'frequency', e.target.value)} placeholder="1-0-1" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <input className="form-input" style={{ border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem' }} value={item.instructions} onChange={e => updateRxItem(idx, 'instructions', e.target.value)} placeholder="Avoid cold drinks" />
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.duration} onChange={e => updateRxItem(idx, 'duration', e.target.value)} placeholder="5d" />
                             </td>
-                            <td style={{ padding: '0.5rem' }}>
-                              <button className="btn btn-icon btn-sm btn-danger" onClick={() => removeRxItem(idx)}><Trash size={14} /></button>
+                            <td style={{ padding: '0.35rem' }}>
+                              <input className="form-input" style={{ width: '100%', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-low)', fontSize: '0.8rem', height: '2.4rem', padding: '0 0.5rem' }} value={item.instructions} onChange={e => updateRxItem(idx, 'instructions', e.target.value)} placeholder="Eat after food" />
                             </td>
                           </tr>
                         ))
