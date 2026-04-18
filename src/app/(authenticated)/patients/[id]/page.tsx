@@ -8,7 +8,7 @@ import {
   FileText, IndianRupee, CalendarDays, Clock, Stethoscope,
   ArrowRight, CheckCircle2, Timer, FileDown,
   Receipt, Activity, CreditCard, Shield, StickyNote, Save,
-  X, Plus, Trash, Printer, Link as LinkIcon
+  X, Plus, Printer, Link as LinkIcon
 } from 'lucide-react';
 import { Invoice, Appointment, RxItem } from '@/types';
 import ToothChart from '@/components/ToothChart';

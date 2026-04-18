@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { LayoutDashboard, Users, CalendarDays, Receipt, Shield, Settings, LogOut } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useState, useRef, useEffect } from 'react';
+import { useStore } from '@/store';
 
 const navItems = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
@@ -19,19 +20,21 @@ export default function Sidebar() {
   const router = useRouter();
   const { user } = useUser();
   const { signOut } = useClerk();
+  const { activeClinic, userData } = useStore();
+  
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // Close menu on outside click
+  // Close menus on outside click
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         setMenuOpen(false);
       }
     };
-    if (menuOpen) document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [menuOpen]);
+  }, []);
 
   const displayName = user?.fullName || user?.firstName || 'Clinic Owner';
   const email = user?.primaryEmailAddress?.emailAddress || '';
@@ -44,15 +47,28 @@ export default function Sidebar() {
 
   return (
     <aside className="sidebar">
-      {/* Brand */}
-      <div className="sidebar-brand">
-        <h1 className="sidebar-brand-text">SmileSync</h1>
+      {/* Brand & Clinic Switcher */}
+      <div className="sidebar-brand" style={{ position: 'relative' }}>
+        <div 
+          className="sidebar-user-tile"
+          style={{ width: '100%', marginBottom: 0, padding: '0.75rem', display: 'flex', gap: '0.5rem', background: 'transparent', border: '1px solid var(--outline-variant)' }}
+        >
+          <div className="sidebar-logo" style={{ width: '32px', height: '32px', fontSize: '1rem', borderRadius: '8px' }}>
+            {activeClinic?.name?.slice(0, 2).toUpperCase() || 'SS'}
+          </div>
+          <div className="sidebar-user-info" style={{ textAlign: 'left' }}>
+            <div className="userName" style={{ fontSize: '0.9rem' }}>{activeClinic?.name || 'SmileSync'}</div>
+            <div className="userEmail" style={{ fontSize: '0.65rem' }}>WORKSPACE</div>
+          </div>
+        </div>
       </div>
 
       {/* Nav */}
       <nav className="sidebar-nav">
         {navItems.map((item) => {
           const isActive = pathname === item.path || pathname?.startsWith(item.path + '/');
+          // Rename 'Admin' to 'Settings' visually if it points to /settings
+          const itemName = item.name === 'Admin' ? 'Settings' : item.name;
           return (
             <Link
               key={item.path}
@@ -60,10 +76,26 @@ export default function Sidebar() {
               className={`nav-link ${isActive ? 'active' : ''}`}
             >
               <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
-              <span className="nav-label">{item.name}</span>
+              <span className="nav-label">{itemName}</span>
             </Link>
           );
         })}
+        {/* SUPER ADMIN */}
+        {(userData?.isSuperAdmin || userData?.email === 'sudhanshu18k@gmail.com') && (
+          <Link
+            href="/admin"
+            className={`nav-link ${pathname === '/admin' ? 'active' : ''}`}
+            style={{ 
+              marginTop: '1rem', 
+              color: 'var(--danger)', 
+              background: pathname === '/admin' ? 'var(--danger-bg)' : 'transparent',
+              border: '1px solid var(--danger-bg)' 
+            }}
+          >
+            <Shield size={20} strokeWidth={2.5} />
+            <span className="nav-label" style={{ fontWeight: 800, textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Super Admin</span>
+          </Link>
+        )}
       </nav>
 
       {/* User Card Footer */}

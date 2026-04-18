@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { useUser } from '@clerk/nextjs';
 import { useStore } from '@/store';
+import { db } from '@/lib/firebase';
+import { doc, updateDoc } from 'firebase/firestore';
 import {
   User, Shield, Building2, Palette, Eye, EyeOff,
   Check, AlertCircle, Users, CalendarDays, Receipt,
@@ -30,8 +32,11 @@ const THEMES = [
 
 export default function SettingsPage() {
   const { user } = useUser();
-  const { patients, appointments, invoices, addPatient, addAppointment, addInvoice } = useStore();
+  const { activeClinicId, activeClinic, userData, patients, appointments, invoices, addPatient, addAppointment, addInvoice } = useStore();
   const [activeTab, setActiveTab] = useState<TabId>('profile');
+  
+  const isOwner = userData?.clinics.find(c => c.clinicId === activeClinicId)?.role === 'owner' || userData?.isSuperAdmin;
+  const availableTabs = TABS.filter(t => t.id !== 'clinic' || isOwner);
 
   // Profile state
   const [displayName, setDisplayName] = useState('');
@@ -74,11 +79,13 @@ export default function SettingsPage() {
     if (saved) {
       try {
         const data = JSON.parse(saved);
-        setClinicName(data.clinicName || '');
+        setClinicName(data.clinicName || activeClinic?.name || '');
         setClinicPhone(data.clinicPhone || '');
         setClinicAddress(data.clinicAddress || '');
         setClinicUPI(data.clinicUPI || '');
       } catch { /* ignore */ }
+    } else if (activeClinic) {
+      setClinicName(activeClinic.name);
     }
     const savedTheme = localStorage.getItem('smilesync_theme');
     if (savedTheme) setSelectedTheme(savedTheme);
@@ -108,7 +115,7 @@ export default function SettingsPage() {
       setLegacyCounts({ patients: pCount, appointments: aCount, invoices: iCount });
     }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [user]);
+  }, [user, activeClinic]);
 
 
 
@@ -154,9 +161,18 @@ export default function SettingsPage() {
   };
 
   // Save clinic settings
-  const handleSaveClinic = () => {
-    localStorage.setItem('smilesync_clinic', JSON.stringify({ clinicName, clinicPhone, clinicAddress, clinicUPI }));
-    setClinicMsg({ type: 'success', text: 'Clinic settings saved!' });
+  const handleSaveClinic = async () => {
+    try {
+      if (activeClinicId && clinicName.trim()) {
+        await updateDoc(doc(db, 'clinics', activeClinicId), {
+          name: clinicName.trim()
+        });
+      }
+      localStorage.setItem('smilesync_clinic', JSON.stringify({ clinicName, clinicPhone, clinicAddress, clinicUPI }));
+      setClinicMsg({ type: 'success', text: 'Clinic settings saved!' });
+    } catch {
+      setClinicMsg({ type: 'error', text: 'Failed to update clinic configuration in the cloud.' });
+    }
     setTimeout(() => setClinicMsg(null), 3000);
   };
 
@@ -339,7 +355,7 @@ export default function SettingsPage() {
       <div className="settings-layout">
         {/* Tab Navigation */}
         <div className="settings-tabs">
-          {TABS.map(tab => (
+          {availableTabs.map(tab => (
             <button
               key={tab.id}
               className={`settings-tab ${activeTab === tab.id ? 'settings-tab-active' : ''}`}
@@ -517,6 +533,7 @@ export default function SettingsPage() {
                 <label className="form-label"><Building2 size={14} /> Clinic Name</label>
                 <input className="form-input" value={clinicName} onChange={e => setClinicName(e.target.value)} placeholder="SmileSync Dental Care" />
               </div>
+
 
               <div className="form-group">
                 <label className="form-label"><Phone size={14} /> Clinic Phone</label>

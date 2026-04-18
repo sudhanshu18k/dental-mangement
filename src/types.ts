@@ -58,3 +58,27 @@ export type Invoice = {
   items?: InvoiceItem[];
   notes?: string;
 };
+
+export type ClinicRole = 'owner' | 'admin' | 'staff';
+
+export type Clinic = {
+  id: string;
+  name: string;
+  joinCode?: string;
+  primaryColor?: string;
+  logoUrl?: string;
+  subscriptionStatus: 'manual' | 'active' | 'inactive' | 'trial' | 'expired' | 'locked';
+  subscriptionPlan?: string;
+  subscriptionEndDate?: string;
+};
+
+export type UserData = {
+  id: string;
+  email: string;
+  isSuperAdmin?: boolean;
+  clinics: {
+    clinicId: string;
+    name: string;
+    role: ClinicRole;
+  }[];
+};

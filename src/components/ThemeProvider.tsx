@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { useStore } from '@/store';
 
 const THEMES: Record<string, { primary: string; secondary: string; accent: string }> = {
   ocean:   { primary: '#0ea5e9', secondary: '#a855f7', accent: '#ec4899' },
@@ -10,16 +11,18 @@ const THEMES: Record<string, { primary: string; secondary: string; accent: strin
   amber:   { primary: '#f59e0b', secondary: '#d97706', accent: '#fbbf24' },
 };
 
-/**
- * Applies the saved accent-color theme and ensures ONLY light mode is active.
- * Neutralized dark mode functionality to respect the high-key design strategy.
- */
 export default function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const { activeClinic } = useStore();
+
   useEffect(() => {
-    // Apply saved theme on first load
-    applyTheme(localStorage.getItem('smilesync_theme') || 'ocean');
+    // Determine the theme color (Clinic override or local preference)
+    if (activeClinic?.primaryColor) {
+      applyCustomBrand(activeClinic.primaryColor);
+    } else {
+      applyTheme(localStorage.getItem('smilesync_theme') || 'ocean');
+    }
     
-    // Check and apply Dark Mode preference
+    // Admin Settings Dark Mode preference (per browser)
     const isDark = localStorage.getItem('smilesync_dark') === 'true';
     if (isDark) {
       document.documentElement.setAttribute('data-theme', 'dark');
@@ -29,13 +32,14 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       document.body.classList.remove('dark');
     }
 
-    // Listen for live theme changes
+    // Listen for live theme changes in settings (if they change local generic theme)
     const themeHandler = (e: Event) => {
-      const themeId = (e as CustomEvent<string>).detail;
-      applyTheme(themeId);
+      if (!activeClinic?.primaryColor) {
+        const themeId = (e as CustomEvent<string>).detail;
+        applyTheme(themeId);
+      }
     };
     
-    // Listen for live dark mode changes
     const darkHandler = (e: Event) => {
       const isDarkNow = (e as CustomEvent<boolean>).detail;
       if (isDarkNow) {
@@ -53,7 +57,7 @@ export default function ThemeProvider({ children }: { children: React.ReactNode 
       window.removeEventListener('smilesync:theme-change', themeHandler);
       window.removeEventListener('smilesync:dark-change', darkHandler);
     };
-  }, []);
+  }, [activeClinic]);
 
   return <>{children}</>;
 }
@@ -65,4 +69,12 @@ function applyTheme(themeId: string) {
   root.style.setProperty('--primary', theme.primary);
   root.style.setProperty('--primary-container', theme.secondary);
   root.style.setProperty('--accent', theme.accent);
+}
+
+function applyCustomBrand(hexColor: string) {
+  const root = document.documentElement;
+  root.style.setProperty('--primary', hexColor);
+  // Just use the primary for container and accent for now or derive them
+  root.style.setProperty('--primary-container', hexColor);
+  root.style.setProperty('--accent', hexColor);
 }

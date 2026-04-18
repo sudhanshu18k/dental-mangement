@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo } from 'react';
 import { useStore } from '@/store';
-import { CalendarDays, Plus, Edit2, Trash2, X, Stethoscope, ChevronLeft, ChevronRight, Clock, MessageCircle, Send, Search, ChevronDown, UserPlus, FileText, Printer, Trash, Link as LinkIcon } from 'lucide-react';
+import { CalendarDays, Plus, Edit2, Trash2, X, Stethoscope, ChevronLeft, ChevronRight, Clock, MessageCircle, Search, ChevronDown, UserPlus, FileText, Printer, Link as LinkIcon } from 'lucide-react';
 import { Appointment, Treatment, RxItem } from '@/types';
 import ToothSelector from '@/components/ToothSelector';
 import jsPDF from 'jspdf';
@@ -522,7 +522,7 @@ export default function AppointmentsPage() {
                         <td>
                           <select
                             value={a.status}
-                            onChange={e => updateAppointment(a.id, { status: e.target.value as any })}
+                            onChange={e => updateAppointment(a.id, { status: e.target.value as Appointment['status'] })}
                             style={{
                               fontSize: '0.75rem',
                               fontWeight: 700,
@@ -717,7 +717,7 @@ export default function AppointmentsPage() {
                         <span style={{ fontWeight: 700, fontSize: '1.05rem', color: '#1e293b' }}>{patient?.name || 'Unknown'}</span>
                         <select
                           value={a.status}
-                          onChange={e => updateAppointment(a.id, { status: e.target.value as any })}
+                          onChange={e => updateAppointment(a.id, { status: e.target.value as Appointment['status'] })}
                           style={{
                             fontSize: '0.7rem',
                             fontWeight: 700,
