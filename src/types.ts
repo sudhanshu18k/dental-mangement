@@ -61,6 +61,18 @@ export type Invoice = {
 
 export type ClinicRole = 'owner' | 'admin' | 'staff';
 
+export type SubscriptionPlan = {
+  id: string;
+  name: string;
+  monthlyPrice: number;
+  yearlyPrice: number;
+  features: string[];
+  maxPatients?: number;
+  maxAppointments?: number;
+  isActive: boolean;
+  createdAt: string;
+};
+
 export type Clinic = {
   id: string;
   name: string;
@@ -69,7 +81,10 @@ export type Clinic = {
   logoUrl?: string;
   subscriptionStatus: 'manual' | 'active' | 'inactive' | 'trial' | 'expired' | 'locked';
   subscriptionPlan?: string;
+  subscriptionPlanId?: string;
   subscriptionEndDate?: string;
+  subscriptionStartDate?: string;
+  trialStartDate?: string;
 };
 
 export type UserData = {

@@ -1,7 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { Patient, Appointment, Invoice, UserData, Clinic } from '@/types';
 import { useAuth, useUser } from '@clerk/nextjs';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc } from 'firebase/firestore';
@@ -17,6 +17,8 @@ interface StoreState {
   activeClinicId: string | null;
   setActiveClinicId: (id: string) => void;
   isLoading: boolean;
+  isReadOnly: boolean;
+  subscriptionDaysLeft: number | null;
   addPatient: (p: Patient) => void;
   updatePatient: (id: string, p: Partial<Patient>) => void;
   deletePatient: (id: string) => void;
@@ -29,6 +31,22 @@ interface StoreState {
 }
 
 const StoreContext = createContext<StoreState | undefined>(undefined);
+
+// Helper: get date N days from now as ISO string
+function daysFromNow(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  return d.toISOString();
+}
+
+// Helper: calculate days left until a date
+function calcDaysLeft(endDateStr?: string): number | null {
+  if (!endDateStr) return null;
+  const end = new Date(endDateStr);
+  const now = new Date();
+  const diff = Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  return diff;
+}
 
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { userId } = useAuth();
@@ -43,6 +61,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Derived subscription state
+  const isReadOnly = useMemo(() => {
+    if (!activeClinic) return false;
+    // Super admins are never read-only
+    if (userData?.isSuperAdmin || userData?.email === 'sudhanshu18k@gmail.com') return false;
+    const status = activeClinic.subscriptionStatus;
+    if (status === 'expired' || status === 'locked') return true;
+    // Check if end date has passed
+    if (activeClinic.subscriptionEndDate) {
+      const daysLeft = calcDaysLeft(activeClinic.subscriptionEndDate);
+      if (daysLeft !== null && daysLeft < 0) return true;
+    }
+    return false;
+  }, [activeClinic, userData]);
+
+  const subscriptionDaysLeft = useMemo(() => {
+    if (!activeClinic?.subscriptionEndDate) return null;
+    return calcDaysLeft(activeClinic.subscriptionEndDate);
+  }, [activeClinic]);
 
   // 1. Fetch UserData and handle Onboarding
   useEffect(() => {
@@ -67,13 +105,20 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         setUserData(data);
 
         if (!data.clinics || data.clinics.length === 0) {
-          // Auto create missing clinic
+          // Auto create missing clinic with 7-day trial
           const clinicRef = doc(collection(db, 'clinics'));
+          const now = new Date().toISOString();
+          const trialEnd = daysFromNow(7);
           const newClinic = {
             id: clinicRef.id,
             name: `${user?.fullName || 'My'} Clinic`,
             ownerId: userId,
-            joinCode: Math.random().toString(36).substring(2, 8).toUpperCase()
+            joinCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+            subscriptionStatus: 'trial',
+            trialStartDate: now,
+            subscriptionStartDate: now,
+            subscriptionEndDate: trialEnd,
+            subscriptionPlan: 'Free Trial',
           };
           await setDoc(clinicRef, newClinic);
           
@@ -90,16 +135,23 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           }
         }
       } else {
-        // New user - auto create a default clinic
+        // New user - auto create a default clinic with 7-day trial
         if (user?.emailAddresses[0]?.emailAddress) {
           const newEmail = user.emailAddresses[0].emailAddress;
           
           const clinicRef = doc(collection(db, 'clinics'));
+          const now = new Date().toISOString();
+          const trialEnd = daysFromNow(7);
           const newClinic = {
             id: clinicRef.id,
             name: `${user.fullName || 'My'} Clinic`,
             ownerId: userId,
-            joinCode: Math.random().toString(36).substring(2, 8).toUpperCase()
+            joinCode: Math.random().toString(36).substring(2, 8).toUpperCase(),
+            subscriptionStatus: 'trial',
+            trialStartDate: now,
+            subscriptionStartDate: now,
+            subscriptionEndDate: trialEnd,
+            subscriptionPlan: 'Free Trial',
           };
           await setDoc(clinicRef, newClinic);
 
@@ -121,7 +173,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     return () => unsubUser();
   }, [userId, user, activeClinicId, router]);
 
-  // 2. Fetch Active Clinic details
+  // 2. Fetch Active Clinic details + auto-expire check
   useEffect(() => {
     if (!activeClinicId) {
       setActiveClinic(null);
@@ -135,6 +187,16 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
            const code = Math.random().toString(36).substring(2, 8).toUpperCase();
            await updateDoc(doc(db, 'clinics', activeClinicId), { joinCode: code });
         }
+
+        // Auto-expire check: if endDate has passed and status is still trial/active
+        if (data.subscriptionEndDate && (data.subscriptionStatus === 'trial' || data.subscriptionStatus === 'active')) {
+          const daysLeft = calcDaysLeft(data.subscriptionEndDate);
+          if (daysLeft !== null && daysLeft < 0) {
+            await updateDoc(doc(db, 'clinics', activeClinicId), { subscriptionStatus: 'expired' });
+            data.subscriptionStatus = 'expired';
+          }
+        }
+
         setActiveClinic({ ...data, id: snap.id });
       }
     });
@@ -171,59 +233,60 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     };
   }, [activeClinicId]);
 
-  // Firestore actions tied to activeClinicId
+  // Firestore actions tied to activeClinicId — guarded by isReadOnly
   const addPatient = useCallback((p: Patient) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     const ref = doc(collection(db, 'clinics', activeClinicId, 'patients'));
     setDoc(ref, { ...p, id: ref.id });
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const updatePatient = useCallback((id: string, p: Partial<Patient>) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     setDoc(doc(db, 'clinics', activeClinicId, 'patients', id), p, { merge: true });
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const deletePatient = useCallback((id: string) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     deleteDoc(doc(db, 'clinics', activeClinicId, 'patients', id));
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const addAppointment = useCallback((a: Appointment) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     const ref = doc(collection(db, 'clinics', activeClinicId, 'appointments'));
     setDoc(ref, { ...a, id: ref.id });
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const updateAppointment = useCallback((id: string, a: Partial<Appointment>) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     setDoc(doc(db, 'clinics', activeClinicId, 'appointments', id), a, { merge: true });
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const deleteAppointment = useCallback((id: string) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     deleteDoc(doc(db, 'clinics', activeClinicId, 'appointments', id));
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const addInvoice = useCallback((i: Invoice) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     const ref = doc(collection(db, 'clinics', activeClinicId, 'invoices'));
     setDoc(ref, { ...i, id: ref.id });
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const updateInvoice = useCallback((id: string, i: Partial<Invoice>) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     setDoc(doc(db, 'clinics', activeClinicId, 'invoices', id), i, { merge: true });
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   const deleteInvoice = useCallback((id: string) => {
-    if (!activeClinicId) return;
+    if (!activeClinicId || isReadOnly) return;
     deleteDoc(doc(db, 'clinics', activeClinicId, 'invoices', id));
-  }, [activeClinicId]);
+  }, [activeClinicId, isReadOnly]);
 
   return (
     <StoreContext.Provider value={{
       patients, appointments, invoices,
       userData, activeClinic, activeClinicId, setActiveClinicId, isLoading,
+      isReadOnly, subscriptionDaysLeft,
       addPatient, updatePatient, deletePatient,
       addAppointment, updateAppointment, deleteAppointment,
       addInvoice, updateInvoice, deleteInvoice,
