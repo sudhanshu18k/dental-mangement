@@ -10,8 +10,8 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="animate-fade-in">
+    <html lang="en" suppressHydrationWarning>
+      <body className="animate-fade-in" suppressHydrationWarning>
         <ClerkProvider>
           <div className="auth-overlay-header">
             <Show when="signed-out">

@@ -39,7 +39,7 @@ export default function Sidebar() {
   const displayName = user?.fullName || user?.firstName || 'Clinic Owner';
   const email = user?.primaryEmailAddress?.emailAddress || '';
   const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
-  const isSuperAdmin = userData?.isSuperAdmin || (userData?.email || '').toLowerCase().includes('sudhanshu') || email.toLowerCase().includes('sudhanshu');
+  const isSuperAdmin = userData?.isSuperAdmin || (userData?.email || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com' || email.toLowerCase().trim() === 'sudhanshu18k@gmail.com';
 
   const handleSignOut = () => {
     setMenuOpen(false);

@@ -17,7 +17,7 @@ export default function AppLayoutClient({ children }: { children: React.ReactNod
   const pathname = usePathname();
   const { activeClinic, isReadOnly, subscriptionDaysLeft, userData } = useStore();
   const isOnboarding = pathname === '/onboarding';
-  const isSuperAdmin = userData?.isSuperAdmin || (userData?.email || '').toLowerCase().includes('sudhanshu');
+  const isSuperAdmin = userData?.isSuperAdmin || (userData?.email || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com';
 
   // Read WhatsApp settings from Firestore (platformSettings/global) — set by admin
   const [waPhone, setWaPhone] = useState<string | null>(null);
@@ -40,6 +40,17 @@ export default function AppLayoutClient({ children }: { children: React.ReactNod
     });
     return () => unsub();
   }, []);
+
+  // Force update user document in Firestore to isSuperAdmin: true if email matches
+  useEffect(() => {
+    if (userData && userData.id && !userData.isSuperAdmin && (userData.email || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com') {
+      import('firebase/firestore').then(({ updateDoc, doc }) => {
+        updateDoc(doc(db, 'users', userData.id), { isSuperAdmin: true })
+          .then(() => console.log('Successfully updated user to super admin in Firestore'))
+          .catch(err => console.error('Failed to update super admin status:', err));
+      });
+    }
+  }, [userData]);
 
   if (isOnboarding) {
     return <div className="w-full min-h-screen bg-slate-50">{children}</div>;

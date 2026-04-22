@@ -12,7 +12,7 @@
     "@clerk/nextjs": "^7.0.4",
     "@types/qrcode": "^1.5.6",
     "date-fns": "^4.1.0",
-    "firebase": "^12.11.0",
+    "firebase": "^12.12.1",
     "jspdf": "^4.2.0",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.577.0",

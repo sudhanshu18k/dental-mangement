@@ -32,13 +32,6 @@ interface StoreState {
 
 const StoreContext = createContext<StoreState | undefined>(undefined);
 
-// Helper: get date N days from now as ISO string
-function daysFromNow(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + n);
-  return d.toISOString();
-}
-
 // Helper: calculate days left until a date
 function calcDaysLeft(endDateStr?: string): number | null {
   if (!endDateStr) return null;
@@ -78,7 +71,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const isReadOnly = useMemo(() => {
     if (!activeClinic) return false;
     // Super admins are never read-only
-    if (userData?.isSuperAdmin || (userData?.email || '').toLowerCase().includes('sudhanshu')) return false;
+    if (userData?.isSuperAdmin || (userData?.email || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com') return false;
     const status = activeClinic.subscriptionStatus;
     if (status === 'expired' || status === 'locked' || status === 'pending') return true;
     // Check if end date has passed
@@ -111,7 +104,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     const unsubUser = onSnapshot(doc(db, 'users', userId), async (snap) => {
       if (snap.exists()) {
         const data = snap.data() as UserData;
-        if ((data.email || '').toLowerCase().includes('sudhanshu') || ((user?.primaryEmailAddress?.emailAddress || '').toLowerCase().includes('sudhanshu'))) {
+        if ((data.email || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com' || ((user?.primaryEmailAddress?.emailAddress || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com')) {
           data.isSuperAdmin = true;
         }
         setUserData(data);
@@ -165,7 +158,7 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             id: userId,
             email: newEmail,
             clinics: [{ clinicId: clinicRef.id, name: newClinic.name, role: 'owner' }],
-            isSuperAdmin: (newEmail || '').toLowerCase().includes('sudhanshu')
+            isSuperAdmin: (newEmail || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com'
           };
           await setDoc(doc(db, 'users', userId), newUserData);
           setUserData(newUserData);
@@ -174,6 +167,10 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         }
         setIsLoading(false);
       }
+    }, (error) => {
+      console.error("Database Error (users):", error);
+      alert("Database Error: " + error.message + "\n\nThis usually means your Firestore 'Test Mode' security rules have expired after 30 days. Please update your Firebase Rules.");
+      setIsLoading(false);
     });
 
     return () => unsubUser();
@@ -205,6 +202,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
         setActiveClinic({ ...data, id: snap.id });
       }
+    }, (error) => {
+      console.error("Database Error (clinics):", error);
     });
 
     return () => unsubClinic();

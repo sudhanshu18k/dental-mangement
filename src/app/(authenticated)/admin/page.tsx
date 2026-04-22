@@ -21,7 +21,6 @@ import {
   CalendarDays, 
   Trash2,
   Plus,
-  Save,
   X,
   Edit3,
   CreditCard,
@@ -82,12 +81,11 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (isLoading) return;
-    if (!userData?.isSuperAdmin && !(userData?.email || '').toLowerCase().includes('sudhanshu')) {
+    if (!userData?.isSuperAdmin && (userData?.email || '').toLowerCase().trim() !== 'sudhanshu18k@gmail.com') {
       router.push('/dashboard');
       return;
     }
     fetchAdminData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userData, isLoading, router]);
 
   // Realtime subscription plans
@@ -198,7 +196,7 @@ export default function AdminPage() {
             return {
               userId: uData.id,
               email: uData.email,
-              isSuperAdmin: !!uData.isSuperAdmin || (uData.email || '').toLowerCase().includes('sudhanshu'),
+              isSuperAdmin: !!uData.isSuperAdmin || (uData.email || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com',
               clinicId: clinicRef.clinicId,
               clinicName: clinicRef.name,
               patientCount: pCount,
@@ -842,15 +840,6 @@ export default function AdminPage() {
                   const filtered = historyFilter.trim()
                     ? history.filter(h => h.email.toLowerCase().includes(historyFilter.toLowerCase()))
                     : history;
-                  const statusColors: Record<string, { bg: string; text: string }> = {
-                    active: { bg: '#d1fae5', text: '#059669' },
-                    trial: { bg: '#dbeafe', text: '#2563eb' },
-                    expired: { bg: '#fee2e2', text: '#dc2626' },
-                    locked: { bg: '#fce7f3', text: '#be185d' },
-                    manual: { bg: '#f1f5f9', text: '#64748b' },
-                    inactive: { bg: '#f1f5f9', text: '#64748b' },
-                    pending: { bg: '#fef3c7', text: '#d97706' },
-                  };
                   if (filtered.length === 0) {
                     return (
                       <tr>
