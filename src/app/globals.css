@@ -3028,3 +3028,279 @@ tbody tr:last-child td { border-bottom: none; }
 }
 
 
+
+/* ═══════════════════════════════════════
+   Subscription Banners
+   ═══════════════════════════════════════ */
+.subscription-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-md);
+  margin-bottom: 1.5rem;
+  animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.subscription-banner-trial {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(217, 119, 6, 0.06));
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.subscription-banner-expired {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(185, 28, 28, 0.06));
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.subscription-banner-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.subscription-banner-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.subscription-banner-trial .subscription-banner-icon {
+  background: rgba(245, 158, 11, 0.15);
+  color: #d97706;
+}
+
+.subscription-banner-expired .subscription-banner-icon {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+.subscription-banner-text {
+  font-size: 0.88rem;
+  color: var(--on-surface);
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.subscription-banner-text strong {
+  font-weight: 700;
+}
+
+.subscription-banner-days {
+  font-weight: 800;
+  color: #d97706;
+  font-size: 0.95rem;
+}
+
+.subscription-banner-readonly {
+  font-weight: 800;
+  color: #dc2626;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  letter-spacing: 0.03em;
+}
+
+.subscription-banner-action {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.4rem 1rem;
+  border-radius: var(--radius-full);
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* Renewal Warning Banner (3 days before expiry) */
+.subscription-banner-renewal {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.10), rgba(234, 88, 12, 0.07));
+  border: 1px solid rgba(251, 146, 60, 0.25);
+  position: relative;
+  overflow: hidden;
+}
+
+.subscription-banner-renewal::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(251, 146, 60, 0.05), transparent);
+  animation: shimmerBanner 3s ease-in-out infinite;
+}
+
+@keyframes shimmerBanner {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.subscription-banner-renewal .subscription-banner-icon {
+  background: rgba(251, 146, 60, 0.18);
+  color: #ea580c;
+}
+
+.subscription-banner-days-urgent {
+  font-weight: 800;
+  color: #ea580c;
+  font-size: 0.95rem;
+  background: rgba(251, 146, 60, 0.12);
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--radius-md);
+}
+
+/* WhatsApp Redirect Button */
+.subscription-whatsapp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 1.15rem;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  color: #ffffff;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  text-decoration: none;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: 0 2px 8px rgba(37, 211, 102, 0.25);
+  flex-shrink: 0;
+  letter-spacing: 0.01em;
+}
+
+.subscription-whatsapp-btn:hover {
+  background: linear-gradient(135deg, #20bd5a, #0f7a6e);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(37, 211, 102, 0.35);
+  color: #ffffff;
+  text-decoration: none;
+}
+
+.subscription-whatsapp-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(37, 211, 102, 0.2);
+}
+
+/* Urgent variant — pulsing for renewal warning */
+.subscription-whatsapp-btn-urgent {
+  animation: whatsappPulse 2.5s ease-in-out infinite;
+}
+
+@keyframes whatsappPulse {
+  0%, 100% { box-shadow: 0 2px 8px rgba(37, 211, 102, 0.25); }
+  50% { box-shadow: 0 4px 20px rgba(37, 211, 102, 0.45), 0 0 0 4px rgba(37, 211, 102, 0.1); }
+}
+
+/* Danger variant — for expired/locked state */
+.subscription-whatsapp-btn-danger {
+  background: linear-gradient(135deg, #25d366, #128c7e);
+  box-shadow: 0 2px 8px rgba(37, 211, 102, 0.2);
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Read-Only Mode Overlay */
+.read-only-mode {
+  position: relative;
+}
+
+.read-only-mode::after {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  background: rgba(239, 68, 68, 0.9);
+  color: white;
+  padding: 0.5rem 1.25rem;
+  border-radius: var(--radius-full);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  z-index: 100;
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.3);
+  content: '\1F512 READ-ONLY MODE';
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.85; transform: scale(1.03); }
+}
+
+/* Dark mode adaptations for banners */
+.dark .subscription-banner-trial {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.12), rgba(217, 119, 6, 0.08));
+  border-color: rgba(245, 158, 11, 0.15);
+}
+
+.dark .subscription-banner-expired {
+  background: linear-gradient(135deg, rgba(239, 68, 68, 0.12), rgba(185, 28, 28, 0.08));
+  border-color: rgba(239, 68, 68, 0.15);
+}
+
+.dark .subscription-banner-action {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.dark .subscription-banner-renewal {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.14), rgba(234, 88, 12, 0.10));
+  border-color: rgba(251, 146, 60, 0.2);
+}
+
+.dark .subscription-banner-days-urgent {
+  color: #fb923c;
+  background: rgba(251, 146, 60, 0.15);
+}
+
+.dark .subscription-whatsapp-btn {
+  box-shadow: 0 2px 12px rgba(37, 211, 102, 0.2);
+}
+
+.dark .subscription-whatsapp-btn:hover {
+  box-shadow: 0 4px 20px rgba(37, 211, 102, 0.3);
+}
+
+/* Plan cards hover effects */
+.plan-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.06);
+}
+
+/* ═══════════════════════════════════════
+   Read-Only Toast Notification
+   ═══════════════════════════════════════ */
+.readonly-toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(220, 38, 38, 0.95);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: var(--radius-full);
+  font-size: 0.85rem;
+  font-weight: 600;
+  z-index: 9999;
+  box-shadow: 0 8px 32px rgba(220, 38, 38, 0.3);
+  cursor: pointer;
+  animation: toastSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  backdrop-filter: blur(8px);
+  max-width: 90vw;
+  text-align: center;
+  line-height: 1.4;
+}
+
+@keyframes toastSlideUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}

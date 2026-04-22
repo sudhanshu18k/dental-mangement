@@ -8,7 +8,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import {
   User, Shield, Building2, Palette, Eye, EyeOff,
   Check, AlertCircle, Users, CalendarDays, Receipt,
-  Save, Phone, MapPin, CreditCard, Moon, Database, Upload, CloudOff, Cloud, Trash2
+  Save, Phone, MapPin, CreditCard, Moon, Database, Upload, CloudOff, Cloud, Trash2, Clock, Download, FileSpreadsheet
 } from 'lucide-react';
 // types imported elsewhere or unnecessary
 
@@ -32,7 +32,7 @@ const THEMES = [
 
 export default function SettingsPage() {
   const { user } = useUser();
-  const { activeClinicId, activeClinic, userData, patients, appointments, invoices, addPatient, addAppointment, addInvoice } = useStore();
+  const { activeClinicId, activeClinic, userData, patients, appointments, invoices, addPatient, addAppointment, addInvoice, subscriptionDaysLeft, isReadOnly } = useStore();
   const [activeTab, setActiveTab] = useState<TabId>('profile');
   
   const isOwner = userData?.clinics.find(c => c.clinicId === activeClinicId)?.role === 'owner' || userData?.isSuperAdmin;
@@ -343,6 +343,51 @@ export default function SettingsPage() {
     URL.revokeObjectURL(url);
   };
 
+  // CSV helper
+  const downloadCSV = (filename: string, headers: string[], rows: string[][]) => {
+    const escape = (val: string) => `"${(val || '').replace(/"/g, '""')}"`;
+    const csv = [headers.map(escape).join(','), ...rows.map(r => r.map(escape).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportPatientsCSV = () => {
+    const headers = ['Name', 'Phone', 'Email', 'DOB', 'Gender', 'Address', 'Medical History', 'Allergies', 'Notes'];
+    const rows = patients.map(p => [p.name, p.phone, p.email, p.dob, p.gender, p.address, p.medicalHistory, p.allergies, p.notes || '']);
+    downloadCSV(`SmileSync_Patients_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
+  };
+
+  const handleExportAppointmentsCSV = () => {
+    const headers = ['Date', 'Time', 'Patient', 'Treatment Type', 'Status', 'Diagnosis', 'Notes', 'Treatments Count'];
+    const rows = appointments.map(a => {
+      const patient = patients.find(p => p.id === a.patientId);
+      return [a.date, a.time, patient?.name || a.patientId, a.treatmentType, a.status, a.diagnosis || '', a.notes || '', (a.treatments?.length || 0).toString()];
+    });
+    downloadCSV(`SmileSync_Appointments_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
+  };
+
+  const handleExportInvoicesCSV = () => {
+    const headers = ['Date', 'Patient', 'Treatment Cost', 'Discount', 'Tax', 'Final Amount', 'Status', 'Notes'];
+    const rows = invoices.map(i => {
+      const patient = patients.find(p => p.id === i.patientId);
+      return [i.date, patient?.name || i.patientId, i.treatmentCost.toString(), i.discount.toString(), i.tax.toString(), i.finalAmount.toString(), i.status, i.notes || ''];
+    });
+    downloadCSV(`SmileSync_Billing_${new Date().toISOString().split('T')[0]}.csv`, headers, rows);
+  };
+
+  const handleExportAllCSV = () => {
+    handleExportPatientsCSV();
+    setTimeout(() => handleExportAppointmentsCSV(), 300);
+    setTimeout(() => handleExportInvoicesCSV(), 600);
+  };
+
   return (
     <div className="settings-page">
       <div className="page-header">
@@ -437,6 +482,69 @@ export default function SettingsPage() {
                   <span className="settings-stat-lbl">Invoices</span>
                 </div>
               </div>
+
+              {/* ── Subscription Info Card ── */}
+              {activeClinic && (
+                <div style={{
+                  marginTop: '1.5rem',
+                  padding: '1.25rem 1.5rem',
+                  borderRadius: '1rem',
+                  border: '1px solid var(--outline-variant)',
+                  background: 'var(--surface-container-lowest)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '1rem' }}>
+                    <CreditCard size={18} color="var(--primary)" />
+                    <span style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--on-surface)' }}>Subscription</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1.5rem' }}>
+                    {/* Plan Info */}
+                    <div style={{ flex: '1 1 140px' }}>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--on-surface-variant)', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Current Plan</div>
+                      <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)' }}>
+                        {activeClinic.subscriptionPlan || 'No plan assigned'}
+                      </div>
+                    </div>
+                    {/* Status */}
+                    <div style={{ flex: '0 1 auto' }}>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--on-surface-variant)', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Status</div>
+                      {(() => {
+                        const s = activeClinic.subscriptionStatus;
+                        const colors: Record<string, { bg: string; text: string }> = {
+                          active: { bg: '#d1fae5', text: '#059669' },
+                          trial: { bg: '#fef3c7', text: '#d97706' },
+                          expired: { bg: '#fee2e2', text: '#dc2626' },
+                          locked: { bg: '#fce7f3', text: '#be185d' },
+                          inactive: { bg: '#f1f5f9', text: '#64748b' },
+                          manual: { bg: '#f1f5f9', text: '#64748b' },
+                          pending: { bg: '#fef3c7', text: '#d97706' },
+                        };
+                        const c = colors[s] || colors.inactive;
+                        return (
+                          <span style={{ background: c.bg, color: c.text, padding: '0.2rem 0.65rem', borderRadius: '1rem', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase' }}>
+                            {s === 'trial' && subscriptionDaysLeft !== null ? `Trial · ${subscriptionDaysLeft}d left` : s}
+                          </span>
+                        );
+                      })()}
+                    </div>
+                    {/* Expiry */}
+                    <div style={{ flex: '1 1 140px' }}>
+                      <div style={{ fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--on-surface-variant)', letterSpacing: '0.05em', marginBottom: '0.25rem' }}>Valid Until</div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.95rem', fontWeight: 600, color: isReadOnly ? '#dc2626' : 'var(--on-surface)' }}>
+                        <Clock size={14} />
+                        {activeClinic.subscriptionEndDate
+                          ? new Date(activeClinic.subscriptionEndDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                          : 'N/A'
+                        }
+                      </div>
+                    </div>
+                  </div>
+                  {isReadOnly && (
+                    <div style={{ marginTop: '0.75rem', padding: '0.6rem 1rem', borderRadius: '0.5rem', background: '#fee2e2', color: '#dc2626', fontSize: '0.8rem', fontWeight: 600 }}>
+                      🔒 Your subscription has expired. The app is in read-only mode. Contact your administrator to renew.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -550,6 +658,7 @@ export default function SettingsPage() {
                 <input className="form-input" value={clinicUPI} onChange={e => setClinicUPI(e.target.value)} placeholder="yourname@upi" />
                 <span style={{ fontSize: '0.75rem', color: 'var(--text-light)' }}>This UPI ID will be encoded in the QR code on invoice PDFs.</span>
               </div>
+
 
               {clinicMsg && (
                 <div className={`settings-msg settings-msg-${clinicMsg.type}`}>
@@ -727,11 +836,83 @@ export default function SettingsPage() {
               )}
 
               {/* Import / Export Section */}
+              <h3 style={{ fontWeight: 700, color: 'var(--on-surface)', margin: '1.5rem 0 1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Download size={18} /> Export Data
+              </h3>
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+                gap: '1rem',
+                marginBottom: '1.5rem',
+              }}>
+                {/* Patients CSV */}
+                <div style={{
+                  padding: '1.25rem',
+                  borderRadius: 'var(--radius-xl)',
+                  border: '1px solid var(--outline-variant)',
+                  background: 'var(--surface-container-lowest)',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }} onClick={handleExportPatientsCSV}>
+                  <FileSpreadsheet size={28} style={{ color: '#059669', marginBottom: '0.5rem' }} />
+                  <div style={{ fontWeight: 700, color: 'var(--on-surface)', fontSize: '0.9rem', marginBottom: '0.2rem' }}>Patients</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>{patients.length} records · CSV</div>
+                </div>
+
+                {/* Appointments CSV */}
+                <div style={{
+                  padding: '1.25rem',
+                  borderRadius: 'var(--radius-xl)',
+                  border: '1px solid var(--outline-variant)',
+                  background: 'var(--surface-container-lowest)',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }} onClick={handleExportAppointmentsCSV}>
+                  <FileSpreadsheet size={28} style={{ color: '#3b82f6', marginBottom: '0.5rem' }} />
+                  <div style={{ fontWeight: 700, color: 'var(--on-surface)', fontSize: '0.9rem', marginBottom: '0.2rem' }}>Appointments</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>{appointments.length} records · CSV</div>
+                </div>
+
+                {/* Billing CSV */}
+                <div style={{
+                  padding: '1.25rem',
+                  borderRadius: 'var(--radius-xl)',
+                  border: '1px solid var(--outline-variant)',
+                  background: 'var(--surface-container-lowest)',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }} onClick={handleExportInvoicesCSV}>
+                  <FileSpreadsheet size={28} style={{ color: '#f59e0b', marginBottom: '0.5rem' }} />
+                  <div style={{ fontWeight: 700, color: 'var(--on-surface)', fontSize: '0.9rem', marginBottom: '0.2rem' }}>Billing</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>{invoices.length} records · CSV</div>
+                </div>
+
+                {/* Download All */}
+                <div style={{
+                  padding: '1.25rem',
+                  borderRadius: 'var(--radius-xl)',
+                  border: '1px solid var(--outline-variant)',
+                  background: 'linear-gradient(135deg, rgba(14,165,233,0.05), rgba(168,85,247,0.05))',
+                  textAlign: 'center',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s',
+                }} onClick={handleExportAllCSV}>
+                  <Download size={28} style={{ color: 'var(--primary)', marginBottom: '0.5rem' }} />
+                  <div style={{ fontWeight: 700, color: 'var(--on-surface)', fontSize: '0.9rem', marginBottom: '0.2rem' }}>Download All</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--on-surface-variant)' }}>3 CSV files</div>
+                </div>
+              </div>
+
+              <h3 style={{ fontWeight: 700, color: 'var(--on-surface)', margin: '0 0 1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                <Database size={18} /> Import / Backup
+              </h3>
               <div style={{
                 display: 'grid',
                 gridTemplateColumns: '1fr 1fr',
                 gap: '1rem',
-                marginTop: '0.5rem',
               }}>
                 {/* Import JSON */}
                 <div style={{
@@ -768,9 +949,9 @@ export default function SettingsPage() {
                   transition: 'all 0.2s',
                 }} onClick={handleExportJSON}>
                   <Database size={28} style={{ color: 'var(--success)', marginBottom: '0.75rem' }} />
-                  <div style={{ fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.3rem' }}>Export Backup</div>
+                  <div style={{ fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.3rem' }}>Export JSON Backup</div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--on-surface-variant)', lineHeight: 1.4 }}>
-                    Download all your data as a JSON file for safekeeping or migration
+                    Download all your data as a JSON file for safekeeping
                   </div>
                 </div>
               </div>

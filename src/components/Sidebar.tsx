@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, CalendarDays, Receipt, Shield, Settings, LogOut } from 'lucide-react';
+import { LayoutDashboard, Users, CalendarDays, Receipt, Shield, Settings, LogOut, Clock, AlertTriangle, Lock, CheckCircle } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
 import { useState, useRef, useEffect } from 'react';
 import { useStore } from '@/store';
@@ -20,7 +20,7 @@ export default function Sidebar() {
   const router = useRouter();
   const { user } = useUser();
   const { signOut } = useClerk();
-  const { activeClinic, userData } = useStore();
+  const { activeClinic, userData, isReadOnly, subscriptionDaysLeft } = useStore();
   
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -39,11 +39,32 @@ export default function Sidebar() {
   const displayName = user?.fullName || user?.firstName || 'Clinic Owner';
   const email = user?.primaryEmailAddress?.emailAddress || '';
   const initials = displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  const isSuperAdmin = userData?.isSuperAdmin || (userData?.email || '').toLowerCase().includes('sudhanshu') || email.toLowerCase().includes('sudhanshu');
 
   const handleSignOut = () => {
     setMenuOpen(false);
     signOut({ redirectUrl: '/' });
   };
+
+  // Subscription badge logic
+  const status = activeClinic?.subscriptionStatus;
+  const getBadge = () => {
+    if (isSuperAdmin) return null;
+    if (status === 'pending') {
+      return { label: 'Pending', color: '#d97706', bg: '#fef3c7', icon: AlertTriangle };
+    }
+    if (status === 'expired' || status === 'locked' || isReadOnly) {
+      return { label: status === 'locked' ? 'Locked' : 'Expired', color: '#dc2626', bg: '#fee2e2', icon: status === 'locked' ? Lock : AlertTriangle };
+    }
+    if (status === 'trial' && subscriptionDaysLeft !== null && subscriptionDaysLeft >= 0) {
+      return { label: `Trial · ${subscriptionDaysLeft}d`, color: '#d97706', bg: '#fef3c7', icon: Clock };
+    }
+    if (status === 'active') {
+      return { label: 'Active', color: '#059669', bg: '#d1fae5', icon: CheckCircle };
+    }
+    return null;
+  };
+  const badge = getBadge();
 
   return (
     <aside className="sidebar">
@@ -63,6 +84,26 @@ export default function Sidebar() {
         </div>
       </div>
 
+      {/* Subscription Badge */}
+      {badge && (
+        <div className="sidebar-sub-badge" style={{
+          margin: '0 0.75rem 0.5rem',
+          padding: '0.4rem 0.75rem',
+          borderRadius: '0.6rem',
+          background: badge.bg,
+          color: badge.color,
+          fontSize: '0.72rem',
+          fontWeight: 700,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '0.35rem',
+          letterSpacing: '0.02em',
+        }}>
+          <badge.icon size={13} strokeWidth={2.5} />
+          {badge.label}
+        </div>
+      )}
+
       {/* Nav */}
       <nav className="sidebar-nav">
         {navItems.map((item) => {
@@ -81,7 +122,7 @@ export default function Sidebar() {
           );
         })}
         {/* SUPER ADMIN */}
-        {(userData?.isSuperAdmin || userData?.email === 'sudhanshu18k@gmail.com') && (
+        {isSuperAdmin && (
           <Link
             href="/admin"
             className={`nav-link ${pathname === '/admin' ? 'active' : ''}`}

@@ -67,6 +67,7 @@ export type SubscriptionPlan = {
   monthlyPrice: number;
   yearlyPrice: number;
   features: string[];
+  duration: number;
   maxPatients?: number;
   maxAppointments?: number;
   isActive: boolean;
@@ -79,7 +80,7 @@ export type Clinic = {
   joinCode?: string;
   primaryColor?: string;
   logoUrl?: string;
-  subscriptionStatus: 'manual' | 'active' | 'inactive' | 'trial' | 'expired' | 'locked';
+  subscriptionStatus: 'manual' | 'active' | 'inactive' | 'trial' | 'expired' | 'locked' | 'pending';
   subscriptionPlan?: string;
   subscriptionPlanId?: string;
   subscriptionEndDate?: string;
@@ -96,4 +97,17 @@ export type UserData = {
     name: string;
     role: ClinicRole;
   }[];
+};
+
+export type SubscriptionHistoryEntry = {
+  id: string;
+  clinicId: string;
+  email: string;
+  action: 'plan_assigned' | 'activated' | 'deactivated' | 'locked' | 'expired' | 'trial_started' | 'plan_created' | 'plan_deleted';
+  planName?: string;
+  amount?: number;
+  cycle?: string;
+  note?: string;
+  timestamp: string;
+  performedBy: string;
 };
