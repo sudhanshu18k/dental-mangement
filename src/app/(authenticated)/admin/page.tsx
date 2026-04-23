@@ -13,6 +13,7 @@ import {
   CheckCircle, 
   AlertTriangle, 
   Lock, 
+  Unlock,
   List, 
   History, 
   Headset, 
@@ -43,6 +44,7 @@ type AdminStats = {
   subPlan: string;
   subPlanId: string;
   subEndDate: string;
+  isLocked: boolean;
 };
 
 export default function AdminPage() {
@@ -217,7 +219,8 @@ export default function AdminPage() {
               subStatus,
               subPlan,
               subPlanId,
-              subEndDate
+              subEndDate,
+              isLocked: !!uData.isLocked
             };
           })());
         }
@@ -335,6 +338,19 @@ export default function AdminPage() {
     const stat = stats.find(s => s.clinicId === clinicId);
     await logHistory({ clinicId, email: stat?.email || '', action: 'locked', note: 'Admin locked account' });
     fetchAdminData();
+  };
+
+  const handleToggleUserLock = async (userId: string, currentLockState: boolean) => {
+    const action = currentLockState ? 'unlock' : 'lock';
+    if (!confirm(`Are you sure you want to ${action} this user? ${!currentLockState ? 'They will be unable to sign in.' : 'They will regain access.'}`)) return;
+    
+    try {
+      await updateDoc(doc(db, 'users', userId), { isLocked: !currentLockState });
+      fetchAdminData();
+    } catch (err) {
+      console.error('Failed to toggle user lock:', err);
+      alert('Failed to update user status.');
+    }
   };
 
   const handleQuickActivate = async (clinicId: string) => {
@@ -657,8 +673,12 @@ export default function AdminPage() {
                                 <CheckCircle size={13} /> Approve Trial
                               </button>
                             )}
-                            <button style={{ background: 'none', border: 'none', color: '#f59e0b', cursor: 'pointer', display: 'flex', padding: '0.3rem' }} title="Lock Account" onClick={() => handleLockClinic(stat.clinicId)}>
-                              <Lock size={17} />
+                            <button 
+                              style={{ background: 'none', border: 'none', color: stat.isLocked ? '#10b981' : '#f59e0b', cursor: 'pointer', display: 'flex', padding: '0.3rem' }} 
+                              title={stat.isLocked ? "Unlock User" : "Lock User"} 
+                              onClick={() => handleToggleUserLock(stat.userId, stat.isLocked)}
+                            >
+                              {stat.isLocked ? <Unlock size={17} /> : <Lock size={17} />}
                             </button>
                             {(stat.subStatus === 'active' || stat.subStatus === 'trial') && (
                               <button

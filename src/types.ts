@@ -92,6 +92,7 @@ export type UserData = {
   id: string;
   email: string;
   isSuperAdmin?: boolean;
+  isLocked?: boolean;
   clinics: {
     clinicId: string;
     name: string;
