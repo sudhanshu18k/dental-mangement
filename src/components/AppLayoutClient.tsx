@@ -7,6 +7,7 @@ import { useStore } from '@/store';
 import { AlertTriangle, Lock, Clock, MessageCircle } from 'lucide-react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { SignOutButton } from '@clerk/nextjs';
 
 // Strip everything except digits from a phone string
 function normalizePhone(raw: string): string {
@@ -54,6 +55,41 @@ export default function AppLayoutClient({ children }: { children: React.ReactNod
 
   if (isOnboarding) {
     return <div className="w-full min-h-screen bg-slate-50">{children}</div>;
+  }
+
+  // Handle completely locked out users
+  if (userData?.isLocked) {
+    return (
+      <div className="w-full min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center border border-red-100">
+          <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <Lock size={36} className="text-red-500" />
+          </div>
+          <h1 className="text-2xl font-bold text-slate-800 mb-3">Account Disabled</h1>
+          <p className="text-slate-600 mb-8 leading-relaxed">
+            Your account has been locked by the administrator. You currently do not have access to the application.
+          </p>
+          
+          <div className="flex flex-col gap-3">
+            {waPhone && (
+              <a 
+                href={`https://wa.me/${waPhone}?text=${encodeURIComponent('Hi, I need help with my locked SmileSync account.')}`} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="w-full py-3 px-4 bg-emerald-50 text-emerald-700 font-semibold rounded-xl flex items-center justify-center gap-2 hover:bg-emerald-100 transition-colors"
+              >
+                <MessageCircle size={18} /> Contact Support
+              </a>
+            )}
+            <SignOutButton>
+              <button className="w-full py-3 px-4 bg-slate-100 text-slate-700 font-semibold rounded-xl hover:bg-slate-200 transition-colors">
+                Sign Out
+              </button>
+            </SignOutButton>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Determine which banner to show
