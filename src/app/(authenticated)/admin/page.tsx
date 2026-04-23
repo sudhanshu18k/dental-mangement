@@ -5,7 +5,7 @@ import { useStore } from '@/store';
 import { collection, getDocs, doc, deleteDoc, getCountFromServer, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
-import { UserData, Clinic, SubscriptionPlan, SubscriptionHistoryEntry } from '@/types';
+import { UserData, Clinic, SubscriptionPlan, SubscriptionHistoryEntry, SupportTicket } from '@/types';
 import { 
   Shield, 
   Loader2, 
@@ -79,6 +79,10 @@ export default function AdminPage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsMsg, setSettingsMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
+  // Support Tickets state
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
   useEffect(() => {
     if (isLoading) return;
     if (!userData?.isSuperAdmin && (userData?.email || '').toLowerCase().trim() !== 'sudhanshu18k@gmail.com') {
@@ -116,6 +120,15 @@ export default function AdminPage() {
         if (data.waPhone) setWaPhone(data.waPhone);
         if (data.waMessage) setWaMessage(data.waMessage);
       }
+    });
+    return () => unsub();
+  }, []);
+
+  // Realtime support tickets
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'support_tickets'), (snap) => {
+      const fetchedTickets: SupportTicket[] = snap.docs.map(d => ({ ...(d.data() as SupportTicket), id: d.id }));
+      setTickets(fetchedTickets.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
     });
     return () => unsub();
   }, []);
@@ -247,10 +260,34 @@ export default function AdminPage() {
   };
 
   const startEditPlan = (plan: SubscriptionPlan) => {
-    setEditingPlan(plan);
     setPlanName(plan.name);
     setPlanPrice(plan.monthlyPrice.toString());
-    setPlanDuration((plan.duration || 30).toString());
+    setPlanDuration(plan.duration.toString());
+  };
+
+  // ─── Support Actions ───
+  const handleResolveTicket = async (id: string) => {
+    setResolvingId(id);
+    try {
+      await updateDoc(doc(db, 'support_tickets', id), {
+        status: 'resolved',
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error("Error resolving ticket:", err);
+    }
+    setResolvingId(null);
+  };
+
+  const handleUpdateTicketStatus = async (id: string, status: 'open' | 'in_progress' | 'resolved') => {
+    try {
+      await updateDoc(doc(db, 'support_tickets', id), {
+        status,
+        updatedAt: new Date().toISOString()
+      });
+    } catch (err) {
+      console.error("Error updating ticket status:", err);
+    }
   };
 
   const cancelEdit = () => {
@@ -433,27 +470,67 @@ export default function AdminPage() {
   return (
     <div style={{ padding: '0 1rem', maxWidth: '1400px', margin: '0 auto' }}>
       
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem' }}>
-        <Shield size={35} color="#e11d48" />
-        <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--on-surface)', letterSpacing: '-0.03em', margin: 0 }}>Admin Panel</h1>
+      {/* Header Section */}
+      <div style={{ marginBottom: '3rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+          <Shield size={28} color="var(--primary)" />
+          <h1 style={{ fontSize: '2.25rem', fontWeight: 800, letterSpacing: '-0.03em' }}>Admin Control Center</h1>
+        </div>
+        <p style={{ color: 'var(--on-surface-variant)', fontWeight: 500, fontSize: '0.95rem' }}>
+          Manage global platform settings, subscription plans, and monitor system-wide activity.
+        </p>
       </div>
 
-      {/* Top Stat Cards Grid */}
-      <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '2rem', flexWrap: 'wrap' }}>
-        <StatCard icon={<Users size={24} />} color="#f43f5e" bg="#ffe4e6" label="Total Users" value={stats.length} />
-        <StatCard icon={<CheckCircle size={24} />} color="#10b981" bg="#d1fae5" label="Active Subs" value={activeSubs} />
-        <StatCard icon={<AlertTriangle size={24} />} color="#f59e0b" bg="#fef3c7" label="Trial Users" value={trialUsers} />
-        <StatCard icon={<Lock size={24} />} color="#f43f5e" bg="#ffe4e6" label="Expired/Locked" value={expiredUsers} />
+      {/* Stats Summary Section */}
+      <div className="grid grid-4 gap-6 mb-10">
+        <StatCard 
+          icon={<Users size={24} />} 
+          color="#0ea5e9" 
+          bg="rgba(14, 165, 233, 0.1)" 
+          label="Total Users" 
+          value={stats.length} 
+        />
+        <StatCard 
+          icon={<CheckCircle size={24} />} 
+          color="#10b981" 
+          bg="rgba(16, 185, 129, 0.1)" 
+          label="Active Clinics" 
+          value={stats.filter(s => s.subStatus === 'active' || s.subStatus === 'trial').length} 
+        />
+        <StatCard 
+          icon={<AlertTriangle size={24} />} 
+          color="#f59e0b" 
+          bg="rgba(245, 158, 11, 0.1)" 
+          label="Expiring Soon" 
+          value={stats.filter(s => {
+            if (!s.subEndDate) return false;
+            const days = Math.ceil((new Date(s.subEndDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            return days !== null && days >= 0 && days <= 7 && s.subStatus !== 'expired';
+          }).length} 
+        />
+        <StatCard 
+          icon={<Lock size={24} />} 
+          color="#ef4444" 
+          bg="rgba(239, 68, 68, 0.1)" 
+          label="Expired/Locked" 
+          value={stats.filter(s => s.subStatus === 'expired' || s.subStatus === 'locked').length} 
+        />
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: '1.5rem', background: 'var(--surface-container-lowest)', padding: '0.6rem 1.5rem', borderRadius: 'var(--radius-full)', marginBottom: '1.5rem', width: 'fit-content', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+      {/* Tab Navigation - Pill Style */}
+      <div style={{ 
+        display: 'inline-flex', 
+        padding: '0.4rem', 
+        background: 'rgba(0,0,0,0.03)', 
+        borderRadius: '1.25rem', 
+        marginBottom: '2.5rem',
+        gap: '0.25rem'
+      }}>
         <TabItem icon={<Users size={18} />} label={`Users (${stats.length})`} active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
         <TabItem icon={<AlertTriangle size={18} />} label="Expiring Soon" active={activeTab === 'expiring'} onClick={() => setActiveTab('expiring')} />
         <TabItem icon={<List size={18} />} label="Subscription Plans" active={activeTab === 'plans'} onClick={() => setActiveTab('plans')} />
         <TabItem icon={<History size={18} />} label="History" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
-        <TabItem icon={<Headset size={18} />} label="Support Tickets" active={activeTab === 'support'} onClick={() => setActiveTab('support')} />
+        <TabItem icon={<Headset size={18} />} label="Support" active={activeTab === 'support'} onClick={() => setActiveTab('support')} />
         <TabItem icon={<Settings size={18} />} label="Settings" active={activeTab === 'settings'} onClick={() => setActiveTab('settings')} />
       </div>
 
@@ -897,13 +974,101 @@ export default function AdminPage() {
       )}
 
       {/* ═══════════════════════════════════
-          TAB: SUPPORT (placeholder)
+          TAB: SUPPORT
          ═══════════════════════════════════ */}
       {activeTab === 'support' && (
-        <div className="card" style={{ textAlign: 'center', padding: '4rem', color: 'var(--on-surface-variant)' }}>
-          <Headset size={48} style={{ marginBottom: '1rem', opacity: 0.3 }} />
-          <h3 style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Support Tickets</h3>
-          <p>Coming soon — manage support requests from users.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', letterSpacing: '-0.02em' }}>Support Tickets</h2>
+              <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.88rem' }}>Manage and resolve issues reported by clinic owners.</p>
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem' }}>
+              <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#059669', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontSize: '0.8rem', fontWeight: 700 }}>
+                {tickets.filter(t => t.status === 'resolved').length} Resolved
+              </div>
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontSize: '0.8rem', fontWeight: 700 }}>
+                {tickets.filter(t => t.status === 'open').length} Open
+              </div>
+            </div>
+          </div>
+
+          {tickets.length === 0 ? (
+            <div className="card" style={{ textAlign: 'center', padding: '5rem 2rem', color: 'var(--on-surface-variant)' }}>
+              <Headset size={64} style={{ marginBottom: '1.5rem', opacity: 0.1 }} />
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>All Quiet Here</h3>
+              <p>No support tickets have been submitted yet.</p>
+            </div>
+          ) : (
+            <div className="table-wrapper card" style={{ padding: 0, borderRadius: '1.5rem', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th style={thStyle}>DATE & SOURCE</th>
+                    <th style={thStyle}>SUBJECT & DESCRIPTION</th>
+                    <th style={thStyle}>STATUS</th>
+                    <th style={thStyle}>ACTION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickets.map((ticket, idx) => (
+                    <tr key={ticket.id} style={{ background: '#ffffff', borderBottom: idx === tickets.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
+                      <td style={tdStyle}>
+                        <div style={{ fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.2rem' }}>
+                          {new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>{ticket.clinicName}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--danger)', fontWeight: 500, marginTop: '0.25rem' }}>{ticket.userEmail}</div>
+                      </td>
+                      <td style={{ ...tdStyle, maxWidth: '400px' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.4rem' }}>{ticket.subject}</div>
+                        <div style={{ fontSize: '0.82rem', color: 'var(--on-surface-variant)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+                          {ticket.description}
+                        </div>
+                      </td>
+                      <td style={tdStyle}>
+                        <div style={{ position: 'relative', display: 'inline-block' }}>
+                          <select 
+                            value={ticket.status} 
+                            onChange={(e) => handleUpdateTicketStatus(ticket.id, e.target.value as 'open' | 'in_progress' | 'resolved')}
+                            style={{
+                              padding: '0.45rem 2rem 0.45rem 1rem', borderRadius: 'var(--radius-full)', border: '1px solid transparent',
+                              fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', appearance: 'none',
+                              background: ticket.status === 'resolved' ? '#d1fae5' : ticket.status === 'in_progress' ? '#fef3c7' : '#fee2e2',
+                              color: ticket.status === 'resolved' ? '#059669' : ticket.status === 'in_progress' ? '#d97706' : '#dc2626',
+                              textTransform: 'uppercase', transition: 'all 0.2s'
+                            }}
+                          >
+                            <option value="open">Open</option>
+                            <option value="in_progress">In Progress</option>
+                            <option value="resolved">Resolved</option>
+                          </select>
+                          <ChevronDown size={14} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: ticket.status === 'resolved' ? '#059669' : ticket.status === 'in_progress' ? '#d97706' : '#dc2626' }} />
+                        </div>
+                      </td>
+                      <td style={tdStyle}>
+                        {ticket.status !== 'resolved' && (
+                          <button 
+                            onClick={() => handleResolveTicket(ticket.id)}
+                            disabled={resolvingId === ticket.id}
+                            className="btn btn-sm"
+                            style={{ 
+                              background: '#059669', color: '#fff', 
+                              opacity: resolvingId === ticket.id ? 0.6 : 1,
+                              display: 'flex', alignItems: 'center', gap: '0.4rem'
+                            }}
+                          >
+                            {resolvingId === ticket.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
+                            Mark Resolved
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
 
@@ -911,123 +1076,128 @@ export default function AdminPage() {
           TAB: SETTINGS (placeholder)
          ═══════════════════════════════════ */}
       {activeTab === 'settings' && (
-        <div style={{ maxWidth: '700px' }}>
-          <h2 style={{ fontSize: '1.3rem', fontWeight: 700, marginBottom: '1.5rem', color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-            <Settings size={22} /> Platform Settings
-          </h2>
+        <div style={{ maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <div style={{ marginBottom: '0.5rem' }}>
+            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', letterSpacing: '-0.02em' }}>Platform Configuration</h2>
+            <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.88rem' }}>Manage global rules and contact information for all clinics.</p>
+          </div>
 
-          {/* Free Trial Toggle */}
-          <div className="card" style={{ padding: '1.5rem 2rem', marginBottom: '1rem', borderRadius: '1.25rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="grid grid-2 gap-6">
+            {/* Free Trial Toggle Card */}
+            <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--on-surface)' }}>Free Trial for New Users</div>
-                <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.2rem' }}>New users get a {trialDays}-day free trial upon signup.</div>
+                <div style={{ 
+                  width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(14, 165, 233, 0.1)', 
+                  color: '#0ea5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem'
+                }}>
+                  <Zap size={20} />
+                </div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Growth Engine</h3>
+                <p style={{ fontSize: '0.82rem', color: '#64748b', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+                  Enable automatic free trials for all new users to increase conversion rates.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '1.5rem', borderTop: '1px solid rgba(0,0,0,0.03)' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: trialEnabled ? '#059669' : '#64748b' }}>
+                  {trialEnabled ? 'ACTIVE — 7 DAYS' : 'INACTIVE'}
+                </span>
+                <button
+                  onClick={() => setTrialEnabled(!trialEnabled)}
+                  style={{
+                    width: '52px', height: '28px', borderRadius: '14px', border: 'none', cursor: 'pointer',
+                    background: trialEnabled ? 'linear-gradient(135deg, #0ea5e9, #38bdf8)' : 'rgba(148, 163, 184, 0.2)',
+                    position: 'relative', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', flexShrink: 0,
+                    boxShadow: trialEnabled ? '0 4px 12px rgba(14, 165, 233, 0.25)' : 'none'
+                  }}
+                >
+                  <div style={{
+                    position: 'absolute', top: '4px', left: trialEnabled ? '28px' : '4px',
+                    width: '20px', height: '20px', borderRadius: '50%', background: 'white',
+                    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
+                  }} />
+                </button>
+              </div>
+            </div>
+
+            {/* Trial Settings Info Card */}
+            <div className="card" style={{ padding: '2rem', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', border: '1px solid rgba(0,0,0,0.02)' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Admin WhatsApp</h3>
+              <p style={{ fontSize: '0.82rem', color: '#64748b', lineHeight: 1.5, marginBottom: '1.5rem' }}>
+                This phone number and message will be displayed to users when their subscription expires.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#0ea5e9' }}>
+                <MessageCircle size={18} />
+                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{waPhone || 'Not set'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Detailed WhatsApp Card */}
+          <div className="card" style={{ padding: '2.5rem' }}>
+            <div style={{ display: 'flex', gap: '2.5rem' }}>
+              <div style={{ flex: 1 }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#64748b' }}>Support Contact Number</label>
+                  <input
+                    value={waPhone}
+                    onChange={e => setWaPhone(e.target.value)}
+                    placeholder="919876543210"
+                    style={{
+                      width: '100%', padding: '0.85rem 1.25rem', marginTop: '0.4rem',
+                      borderRadius: '0.85rem', border: '1px solid rgba(0,0,0,0.08)',
+                      background: '#f8fafc', fontSize: '0.95rem', fontWeight: 500,
+                      color: 'var(--on-surface)', outline: 'none', transition: 'all 0.2s'
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={{ flex: 1.5 }}>
+                <div className="form-group">
+                  <label className="form-label" style={{ color: '#64748b' }}>Renewal Template Message</label>
+                  <textarea
+                    value={waMessage}
+                    onChange={e => setWaMessage(e.target.value)}
+                    rows={1}
+                    placeholder="Hi, I would like to renew my SmileSync subscription."
+                    style={{
+                      width: '100%', padding: '0.85rem 1.25rem', marginTop: '0.4rem',
+                      borderRadius: '0.85rem', border: '1px solid rgba(0,0,0,0.08)',
+                      background: '#f8fafc', fontSize: '0.95rem', fontWeight: 500,
+                      color: 'var(--on-surface)', outline: 'none', transition: 'all 0.2s',
+                      minHeight: '48px', resize: 'none'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid rgba(0,0,0,0.03)' }}>
+              <div>
+                {settingsMsg && (
+                  <div style={{
+                    color: settingsMsg.type === 'success' ? '#059669' : '#dc2626',
+                    fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem'
+                  }}>
+                    {settingsMsg.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                    {settingsMsg.text}
+                  </div>
+                )}
               </div>
               <button
-                onClick={() => setTrialEnabled(!trialEnabled)}
-                style={{
-                  width: '48px', height: '26px', borderRadius: '13px', border: 'none', cursor: 'pointer',
-                  background: trialEnabled ? 'linear-gradient(135deg, #0ea5e9, #38bdf8)' : 'rgba(148, 163, 184, 0.3)',
-                  position: 'relative', transition: 'all 0.25s ease', flexShrink: 0
+                onClick={handleSavePlatformSettings}
+                disabled={settingsSaving}
+                className="btn btn-whatsapp"
+                style={{ 
+                  padding: '0.75rem 2rem', 
+                  borderRadius: '1rem',
+                  fontSize: '0.9rem',
+                  boxShadow: '0 10px 25px rgba(37, 211, 102, 0.25)'
                 }}
               >
-                <div style={{
-                  position: 'absolute', top: '3px', left: trialEnabled ? '24px' : '3px',
-                  width: '20px', height: '20px', borderRadius: '50%', background: 'white',
-                  transition: 'all 0.25s ease', boxShadow: '0 2px 4px rgba(0,0,0,0.15)'
-                }} />
+                <MessageCircle size={18} /> {settingsSaving ? 'Syncing...' : 'Update Settings'}
               </button>
             </div>
-          </div>
-
-          {/* Trial status indicator */}
-          <div style={{
-            padding: '0.6rem 1.25rem', marginBottom: '1.5rem', borderRadius: 'var(--radius-md)',
-            background: trialEnabled ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-            border: `1px solid ${trialEnabled ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)'}`,
-            fontSize: '0.8rem', fontWeight: 600,
-            color: trialEnabled ? '#059669' : '#dc2626',
-            display: 'flex', alignItems: 'center', gap: '0.5rem'
-          }}>
-            Current status:
-            <span style={{
-              background: trialEnabled ? '#d1fae5' : '#fee2e2',
-              color: trialEnabled ? '#059669' : '#dc2626',
-              padding: '0.15rem 0.65rem', borderRadius: '1rem',
-              fontSize: '0.72rem', fontWeight: 700
-            }}>
-              {trialEnabled ? `Enabled — ${trialDays} days` : 'Disabled'}
-            </span>
-          </div>
-
-          {/* WhatsApp Settings */}
-          <div className="card" style={{ padding: '1.5rem 2rem', marginBottom: '1.5rem', borderRadius: '1.25rem' }}>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                Admin WhatsApp Phone Number
-              </div>
-              <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.25rem' }}>
-                Enter the phone number users will contact for subscription renewal (with country code, e.g. 919876543210).
-              </div>
-              <input
-                value={waPhone}
-                onChange={e => setWaPhone(e.target.value)}
-                placeholder="919876543210"
-                style={{
-                  width: '100%', padding: '0.75rem 1rem', marginTop: '0.75rem',
-                  borderRadius: 'var(--radius-lg)', border: '1px solid var(--outline-variant)',
-                  background: 'var(--surface-container-lowest)', fontSize: '0.9rem',
-                  color: 'var(--on-surface)', outline: 'none'
-                }}
-              />
-            </div>
-
-            <div style={{ marginBottom: '1.25rem' }}>
-              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--on-surface)' }}>
-                WhatsApp Renewal Message
-              </div>
-              <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.25rem' }}>
-                Customize the pre-filled message users see when they click &quot;Renew via WhatsApp&quot;.
-              </div>
-              <input
-                value={waMessage}
-                onChange={e => setWaMessage(e.target.value)}
-                placeholder="Hi, I would like to renew my SmileSync subscription."
-                style={{
-                  width: '100%', padding: '0.75rem 1rem', marginTop: '0.75rem',
-                  borderRadius: 'var(--radius-lg)', border: '1px solid var(--outline-variant)',
-                  background: 'var(--surface-container-lowest)', fontSize: '0.9rem',
-                  color: 'var(--on-surface)', outline: 'none'
-                }}
-              />
-            </div>
-
-            {settingsMsg && (
-              <div style={{
-                padding: '0.6rem 1rem', borderRadius: 'var(--radius-md)', marginBottom: '1rem',
-                background: settingsMsg.type === 'success' ? '#d1fae5' : '#fee2e2',
-                color: settingsMsg.type === 'success' ? '#059669' : '#dc2626',
-                fontSize: '0.82rem', fontWeight: 600,
-                display: 'flex', alignItems: 'center', gap: '0.4rem'
-              }}>
-                {settingsMsg.type === 'success' ? <CheckCircle size={15} /> : <AlertTriangle size={15} />}
-                {settingsMsg.text}
-              </div>
-            )}
-
-            <button
-              onClick={handleSavePlatformSettings}
-              disabled={settingsSaving}
-              style={{
-                padding: '0.6rem 1.5rem', borderRadius: 'var(--radius-full)', border: 'none',
-                background: 'linear-gradient(135deg, #25d366, #128c7e)', color: '#fff',
-                fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer',
-                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                opacity: settingsSaving ? 0.6 : 1, transition: 'all 0.2s'
-              }}
-            >
-              <MessageCircle size={16} /> {settingsSaving ? 'Saving...' : 'Save WhatsApp Settings'}
-            </button>
           </div>
         </div>
       )}
@@ -1156,16 +1326,20 @@ function TabItem({ icon, label, active, onClick }: { icon: React.ReactNode, labe
     <button 
       onClick={onClick}
       style={{ 
-        display: 'flex', alignItems: 'center', gap: '0.5rem', 
-        background: 'none', border: 'none', cursor: 'pointer',
-        color: active ? '#1e293b' : '#94a3b8',
+        display: 'flex', alignItems: 'center', gap: '0.65rem', 
+        background: active ? '#ffffff' : 'transparent', 
+        border: 'none', cursor: 'pointer',
+        color: active ? 'var(--primary)' : '#64748b',
         fontWeight: active ? 700 : 600,
-        fontSize: '0.85rem',
-        padding: '0.4rem', borderBottom: active ? '2px solid transparent' : '2px solid transparent',
-        transition: 'all 0.2s ease'
+        fontSize: '0.88rem',
+        padding: '0.75rem 1.5rem', 
+        borderRadius: '1rem',
+        boxShadow: active ? '0 4px 12px rgba(0,0,0,0.06)' : 'none',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        whiteSpace: 'nowrap'
       }}
     >
-      {icon}
+      <span style={{ opacity: active ? 1 : 0.7 }}>{icon}</span>
       {label}
     </button>
   );

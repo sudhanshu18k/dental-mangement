@@ -8,11 +8,11 @@ import { doc, updateDoc } from 'firebase/firestore';
 import {
   User, Shield, Building2, Palette, Eye, EyeOff,
   Check, AlertCircle, Users, CalendarDays, Receipt,
-  Save, Phone, MapPin, CreditCard, Moon, Database, Upload, CloudOff, Cloud, Trash2, Clock, Download, FileSpreadsheet
+  Save, Phone, MapPin, CreditCard, Moon, Database, Upload, CloudOff, Cloud, Trash2, Clock, Download, FileSpreadsheet, LifeBuoy, Send
 } from 'lucide-react';
 // types imported elsewhere or unnecessary
 
-type TabId = 'profile' | 'security' | 'clinic' | 'appearance' | 'data';
+type TabId = 'profile' | 'security' | 'clinic' | 'appearance' | 'data' | 'support';
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'profile', label: 'Profile', icon: User },
@@ -20,6 +20,7 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: 'clinic', label: 'Clinic', icon: Building2 },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'data', label: 'Data', icon: Database },
+  { id: 'support', label: 'Support', icon: LifeBuoy },
 ];
 
 const THEMES = [
@@ -68,6 +69,12 @@ export default function SettingsPage() {
   const [migrating, setMigrating] = useState(false);
   const [migrationResult, setMigrationResult] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const [legacyCounts, setLegacyCounts] = useState<{ patients: number; appointments: number; invoices: number } | null>(null);
+
+  // Support Ticket state
+  const [ticketSubject, setTicketSubject] = useState('');
+  const [ticketDescription, setTicketDescription] = useState('');
+  const [ticketMsg, setTicketMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [ticketSaving, setTicketSaving] = useState(false);
 
   // Load clinic settings from localStorage
   useEffect(() => {
@@ -189,6 +196,36 @@ export default function SettingsPage() {
     setIsDark(newVal);
     localStorage.setItem('smilesync_dark', newVal.toString());
     window.dispatchEvent(new CustomEvent('smilesync:dark-change', { detail: newVal }));
+  };
+
+  // Submit Support Ticket
+  const handleSubmitTicket = async () => {
+    if (!ticketSubject.trim() || !ticketDescription.trim()) return;
+    setTicketSaving(true);
+    setTicketMsg(null);
+    try {
+      const ticketId = 't' + Date.now();
+      const { setDoc, collection, doc } = await import('firebase/firestore');
+      await setDoc(doc(collection(db, 'support_tickets'), ticketId), {
+        id: ticketId,
+        clinicId: activeClinicId,
+        clinicName: activeClinic?.name || 'Unknown Clinic',
+        userEmail: user?.primaryEmailAddress?.emailAddress || 'Unknown',
+        subject: ticketSubject.trim(),
+        description: ticketDescription.trim(),
+        status: 'open',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      setTicketMsg({ type: 'success', text: 'Issue submitted successfully! Our team will look into it.' });
+      setTicketSubject('');
+      setTicketDescription('');
+    } catch (err) {
+      console.error(err);
+      setTicketMsg({ type: 'error', text: 'Failed to submit issue. Please try again later.' });
+    }
+    setTicketSaving(false);
+    setTimeout(() => setTicketMsg(null), 5000);
   };
 
   /* ── Data Migration ── */
@@ -955,6 +992,55 @@ export default function SettingsPage() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ═══ SUPPORT TAB ═══ */}
+          {activeTab === 'support' && (
+            <div className="settings-panel">
+              <h2 className="settings-panel-title">
+                <LifeBuoy size={20} /> Report an Issue
+              </h2>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
+                Describe your issue below and submit it to the support team.
+              </p>
+
+              <div className="form-group">
+                <label className="form-label">Subject</label>
+                <input
+                  className="form-input"
+                  value={ticketSubject}
+                  onChange={e => setTicketSubject(e.target.value)}
+                  placeholder="e.g. Unable to add appointment"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <textarea
+                  className="form-input"
+                  value={ticketDescription}
+                  onChange={e => setTicketDescription(e.target.value)}
+                  placeholder="Please describe the issue in detail..."
+                  style={{ minHeight: '150px', resize: 'vertical' }}
+                />
+              </div>
+
+              {ticketMsg && (
+                <div className={`settings-msg settings-msg-${ticketMsg.type}`} style={{ marginBottom: '1rem' }}>
+                  {ticketMsg.type === 'success' ? <Check size={15} /> : <AlertCircle size={15} />}
+                  {ticketMsg.text}
+                </div>
+              )}
+
+              <button 
+                className="btn btn-primary" 
+                onClick={handleSubmitTicket} 
+                disabled={ticketSaving || !ticketSubject.trim() || !ticketDescription.trim()}
+                style={{ marginTop: '0.5rem', background: 'linear-gradient(135deg, #0ea5e9, #22d3ee)' }}
+              >
+                <Send size={16} /> {ticketSaving ? 'Submitting...' : 'Submit Issue'}
+              </button>
             </div>
           )}
         </div>

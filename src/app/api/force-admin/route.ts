@@ -6,7 +6,7 @@ export async function GET() {
   try {
     const snapshot = await getDocs(collection(db, 'users'));
     let found = false;
-    let modifiedIds = [];
+    const modifiedIds = [];
 
     for (const d of snapshot.docs) {
       const data = d.data();
@@ -26,7 +26,7 @@ export async function GET() {
     } else {
       return NextResponse.json({ success: false, message: `Could not find any user with email sudhanshu18k@gmail.com in the database. Are you sure you are logged in with that exact email?` }, { status: 404 });
     }
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+  } catch (error) {
+    return NextResponse.json({ success: false, error: error instanceof Error ? error.message : String(error) }, { status: 500 });
   }
 }

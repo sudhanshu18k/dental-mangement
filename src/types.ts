@@ -111,3 +111,15 @@ export type SubscriptionHistoryEntry = {
   timestamp: string;
   performedBy: string;
 };
+
+export type SupportTicket = {
+  id: string;
+  clinicId: string;
+  clinicName: string;
+  userEmail: string;
+  subject: string;
+  description: string;
+  status: 'open' | 'in_progress' | 'resolved';
+  createdAt: string;
+  updatedAt: string;
+};
