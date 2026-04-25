@@ -45,6 +45,8 @@ type AdminStats = {
   subPlanId: string;
   subEndDate: string;
   isLocked: boolean;
+  name?: string;
+  phone?: string;
 };
 
 export default function AdminPage() {
@@ -220,7 +222,9 @@ export default function AdminPage() {
               subPlan,
               subPlanId,
               subEndDate,
-              isLocked: !!uData.isLocked
+              isLocked: !!uData.isLocked,
+              name: uData.name,
+              phone: uData.phone
             };
           })());
         }
@@ -332,14 +336,6 @@ export default function AdminPage() {
     }
   };
 
-  const handleLockClinic = async (clinicId: string) => {
-    if (!confirm('Lock this clinic? Users will enter read-only mode.')) return;
-    await updateDoc(doc(db, 'clinics', clinicId), { subscriptionStatus: 'locked' });
-    const stat = stats.find(s => s.clinicId === clinicId);
-    await logHistory({ clinicId, email: stat?.email || '', action: 'locked', note: 'Admin locked account' });
-    fetchAdminData();
-  };
-
   const handleToggleUserLock = async (userId: string, currentLockState: boolean) => {
     const action = currentLockState ? 'unlock' : 'lock';
     if (!confirm(`Are you sure you want to ${action} this user? ${!currentLockState ? 'They will be unable to sign in.' : 'They will regain access.'}`)) return;
@@ -397,7 +393,10 @@ export default function AdminPage() {
   // ─── Assign Plan to User ───
   const openAssignModal = (stat: AdminStats) => {
     setAssignModal({ userId: stat.userId, clinicId: stat.clinicId, email: stat.email });
-    setAssignPlanId(stat.subPlanId || (plans.length > 0 ? plans[0].id : ''));
+    const activePlans = plans.filter(p => p.isActive);
+    const currentPlan = plans.find(p => p.id === stat.subPlanId);
+    const defaultId = (currentPlan && currentPlan.isActive) ? stat.subPlanId : (activePlans.length > 0 ? activePlans[0].id : '');
+    setAssignPlanId(defaultId);
     setAssignCycle('monthly');
   };
 
@@ -410,10 +409,13 @@ export default function AdminPage() {
 
       const now = new Date();
       const endDate = new Date();
+      const durationDays = plan.duration || 30;
+      
       if (assignCycle === 'monthly') {
-        endDate.setMonth(endDate.getMonth() + 1);
+        endDate.setDate(endDate.getDate() + durationDays);
       } else {
-        endDate.setFullYear(endDate.getFullYear() + 1);
+        const multiplier = durationDays > 30 ? 1 : 12;
+        endDate.setDate(endDate.getDate() + (durationDays * multiplier));
       }
 
       await updateDoc(doc(db, 'clinics', assignModal.clinicId), {
@@ -451,11 +453,6 @@ export default function AdminPage() {
       </div>
     );
   }
-
-  // Calculate top stats
-  const activeSubs = stats.filter(s => ['active', 'manual'].includes(s.subStatus)).length;
-  const trialUsers = stats.filter(s => s.subStatus === 'trial').length;
-  const expiredUsers = stats.filter(s => ['expired', 'locked'].includes(s.subStatus)).length;
 
   const filteredStats = stats.filter(s => {
     const matchesSearch = s.email.toLowerCase().includes(searchQuery.toLowerCase()) || s.clinicName.toLowerCase().includes(searchQuery.toLowerCase());
@@ -592,7 +589,7 @@ export default function AdminPage() {
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  <th style={{ padding: '1.5rem', background: '#ffffff', color: 'var(--on-surface-variant)', fontSize: '0.8rem', borderBottom: '1px solid #f1f5f9', fontWeight: 700 }}>EMAIL</th>
+                  <th style={{ padding: '1.5rem', background: '#ffffff', color: 'var(--on-surface-variant)', fontSize: '0.8rem', borderBottom: '1px solid #f1f5f9', fontWeight: 700 }}>USER INFO</th>
                   <th style={{ padding: '1.5rem', background: '#ffffff', color: 'var(--on-surface-variant)', fontSize: '0.8rem', borderBottom: '1px solid #f1f5f9', fontWeight: 700 }}>CLINIC</th>
                   <th style={{ padding: '1.5rem', background: '#ffffff', color: 'var(--on-surface-variant)', fontSize: '0.8rem', borderBottom: '1px solid #f1f5f9', fontWeight: 700 }}><div style={{ display: 'flex', alignItems: 'center', gap:'0.4rem'}}><Users size={17} /> PATIENTS</div></th>
                   <th style={{ padding: '1.5rem', background: '#ffffff', color: 'var(--on-surface-variant)', fontSize: '0.8rem', borderBottom: '1px solid #f1f5f9', fontWeight: 700 }}><div style={{ display: 'flex', alignItems: 'center', gap:'0.4rem'}}><CalendarDays size={17} /> APPTS</div></th>
@@ -613,9 +610,13 @@ export default function AdminPage() {
                     const sc = getStatusColor(stat.subStatus);
                     return (
                       <tr key={idx} style={{ background: '#ffffff', borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ padding: '1.25rem 1.5rem', fontWeight: 600, color: 'var(--on-surface)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <ChevronDown size={20} color="#cbd5e1" />
-                          {stat.email}
+                        <td style={{ padding: '1.25rem 1.5rem', display: 'flex', gap: '0.75rem' }}>
+                          <ChevronDown size={20} color="#cbd5e1" style={{ marginTop: '0.2rem' }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                            <span style={{ fontWeight: 700, color: 'var(--on-surface)', fontSize: '0.9rem' }}>{stat.name || 'Unknown User'}</span>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)', fontWeight: 500 }}>{stat.email}</span>
+                            {stat.phone && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{stat.phone}</span>}
+                          </div>
                         </td>
                         <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.9rem', color: 'var(--on-surface-variant)' }}>
                           {stat.clinicName}
@@ -717,7 +718,7 @@ export default function AdminPage() {
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  <th style={thStyle}>EMAIL</th>
+                  <th style={thStyle}>USER INFO</th>
                   <th style={thStyle}>CLINIC</th>
                   <th style={thStyle}>STATUS</th>
                   <th style={thStyle}>EXPIRES</th>
@@ -744,7 +745,11 @@ export default function AdminPage() {
                     const sc = getStatusColor(s.subStatus);
                     return (
                       <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={tdStyle}>{s.email}</td>
+                        <td style={{ padding: '1.25rem 1.5rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+                          <span style={{ fontWeight: 700, color: 'var(--on-surface)', fontSize: '0.9rem' }}>{s.name || 'Unknown User'}</span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)', fontWeight: 500 }}>{s.email}</span>
+                          {s.phone && <span style={{ fontSize: '0.75rem', color: '#64748b' }}>{s.phone}</span>}
+                        </td>
                         <td style={tdStyle}>{s.clinicName}</td>
                         <td style={tdStyle}>
                           <span style={{ background: sc.bg, color: sc.text, padding: '0.15rem 0.6rem', borderRadius: '1rem', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase' }}>{s.subStatus}</span>

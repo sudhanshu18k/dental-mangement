@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '@/store';
-import { IndianRupee, FileDown, Plus, X, Receipt, Trash2, Edit3, Search, SlidersHorizontal, ArrowDown, ArrowUp, ChevronDown, UserPlus } from 'lucide-react';
+import { IndianRupee, FileDown, Plus, X, Receipt, Trash2, Edit3, Search, SlidersHorizontal, ArrowDown, ArrowUp, ChevronDown, UserPlus, MessageCircle } from 'lucide-react';
 import { Invoice, InvoiceItem } from '@/types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -428,6 +428,32 @@ export default function BillingPage() {
   };
 
   // Summary stats
+  const handleSendWhatsApp = (inv: Invoice) => {
+    const patient = patients.find(p => p.id === inv.patientId);
+    if (!patient || !patient.phone) {
+      alert("Patient phone number not found.");
+      return;
+    }
+    
+    // Clean phone number (remove spaces, plus, etc.)
+    let phoneStr = patient.phone.replace(/[^0-9]/g, '');
+    if (phoneStr.length === 10) {
+      phoneStr = '91' + phoneStr; // Assuming India as default if 10 digits
+    }
+
+    const message = `Hello ${patient.name},
+
+This is regarding your recent visit to ${clinicName}.
+Invoice No: #INV-${inv.id.slice(-6).toUpperCase()}
+Amount: ₹${inv.finalAmount.toLocaleString('en-IN')}
+Status: ${inv.status}
+
+Thank you for choosing ${clinicName}!`;
+
+    const encodedMessage = encodeURIComponent(message);
+    const url = `https://wa.me/${phoneStr}?text=${encodedMessage}`;
+    window.open(url, '_blank');
+  };
   const totalRevenue = invoices.filter(i => i.status === 'Paid').reduce((a, i) => a + i.finalAmount, 0);
   const totalPending = invoices.filter(i => i.status === 'Pending').reduce((a, i) => a + i.finalAmount, 0);
 
@@ -786,6 +812,14 @@ export default function BillingPage() {
                             title="Download PDF"
                           >
                             <FileDown size={18} />
+                          </button>
+                          <button 
+                            className="btn btn-sm btn-icon" 
+                            onClick={() => handleSendWhatsApp(inv)}
+                            style={{ padding: '0.5rem', borderRadius: '0.75rem', background: '#dcfce7', color: '#16a34a' }}
+                            title="Send to WhatsApp"
+                          >
+                            <MessageCircle size={18} />
                           </button>
                           <button 
                             className="btn btn-sm btn-icon" 
@@ -1223,7 +1257,7 @@ export default function BillingPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {manualItems.map((item, idx) => (
                       <div key={idx} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-                        <div style={{ flex: 1 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <input
                             className="form-input"
                             placeholder="Description (e.g. Dental Cleaning)"
@@ -1233,9 +1267,9 @@ export default function BillingPage() {
                             style={{ borderRadius: '0.75rem', border: '1.5px solid var(--outline-variant)' }}
                           />
                         </div>
-                        <div style={{ width: '130px' }}>
+                        <div style={{ width: '100px', flexShrink: 0 }}>
                           <div style={{ position: 'relative' }}>
-                            <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', fontWeight: 600, color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>₹</span>
+                            <span style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', fontWeight: 600, color: 'var(--on-surface-variant)', fontSize: '0.85rem' }}>₹</span>
                             <input
                               className="form-input"
                               type="number"
@@ -1244,7 +1278,7 @@ export default function BillingPage() {
                               value={item.amount || ''}
                               onChange={e => updateManualItem(idx, 'amount', e.target.value)}
                               required
-                              style={{ paddingLeft: '1.8rem', borderRadius: '0.75rem', border: '1.5px solid var(--outline-variant)' }}
+                              style={{ paddingLeft: '1.6rem', paddingRight: '0.5rem', borderRadius: '0.75rem', border: '1.5px solid var(--outline-variant)' }}
                             />
                           </div>
                         </div>
@@ -1257,20 +1291,18 @@ export default function BillingPage() {
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '0.4rem',
-                            background: 'rgba(239, 68, 68, 0.1)',
-                            border: '1px solid rgba(239, 68, 68, 0.2)',
+                            background: '#fee2e2',
+                            border: '1px solid #f87171',
                             borderRadius: '0.75rem', 
-                            color: 'var(--danger)',
+                            color: '#dc2626',
                             cursor: 'pointer',
-                            transition: 'all 0.2s',
-                            padding: '0 0.8rem',
-                            fontWeight: 600,
+                            fontWeight: 700,
                             fontSize: '0.8rem',
+                            padding: '0 0.75rem',
+                            marginLeft: '0.25rem'
                           }}
-                          title={manualItems.length <= 1 ? "Clear item" : "Remove item"}
                         >
-                          <Trash2 size={14} /> <span className="hide-on-mobile">Remove</span>
+                          Cancel
                         </button>
                       </div>
                     ))}

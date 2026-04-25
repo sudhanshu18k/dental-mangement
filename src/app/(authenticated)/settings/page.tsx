@@ -78,7 +78,6 @@ export default function SettingsPage() {
 
   // Load clinic settings from localStorage
   useEffect(() => {
-    /* eslint-disable react-hooks/set-state-in-effect */
     if (user) {
       setDisplayName(user.fullName || user.firstName || '');
     }
@@ -121,7 +120,6 @@ export default function SettingsPage() {
     if (pCount > 0 || aCount > 0 || iCount > 0) {
       setLegacyCounts({ patients: pCount, appointments: aCount, invoices: iCount });
     }
-    /* eslint-enable react-hooks/set-state-in-effect */
   }, [user, activeClinic]);
 
 

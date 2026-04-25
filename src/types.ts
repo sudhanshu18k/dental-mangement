@@ -91,6 +91,8 @@ export type Clinic = {
 export type UserData = {
   id: string;
   email: string;
+  name?: string;
+  phone?: string;
   isSuperAdmin?: boolean;
   isLocked?: boolean;
   clinics: {

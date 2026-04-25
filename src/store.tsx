@@ -107,6 +107,26 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         if ((data.email || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com' || ((user?.primaryEmailAddress?.emailAddress || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com')) {
           data.isSuperAdmin = true;
         }
+
+        let needsUpdate = false;
+        if (user) {
+          if (!data.name && user.fullName) {
+            data.name = user.fullName;
+            needsUpdate = true;
+          }
+          if (!data.phone && user.primaryPhoneNumber?.phoneNumber) {
+            data.phone = user.primaryPhoneNumber.phoneNumber;
+            needsUpdate = true;
+          }
+        }
+
+        if (needsUpdate || data.isSuperAdmin !== (snap.data() as UserData).isSuperAdmin) {
+          const updatePayload: Record<string, string | boolean | null> = { isSuperAdmin: !!data.isSuperAdmin };
+          if (data.name !== undefined) updatePayload.name = data.name || null;
+          if (data.phone !== undefined) updatePayload.phone = data.phone || null;
+          await updateDoc(doc(db, 'users', userId), updatePayload);
+        }
+        
         setUserData(data);
 
         if (!data.clinics || data.clinics.length === 0) {
@@ -160,6 +180,9 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             clinics: [{ clinicId: clinicRef.id, name: newClinic.name, role: 'owner' }],
             isSuperAdmin: (newEmail || '').toLowerCase().trim() === 'sudhanshu18k@gmail.com'
           };
+          if (user.fullName) newUserData.name = user.fullName;
+          if (user.primaryPhoneNumber?.phoneNumber) newUserData.phone = user.primaryPhoneNumber.phoneNumber;
+          
           await setDoc(doc(db, 'users', userId), newUserData);
           setUserData(newUserData);
           setActiveClinicId(clinicRef.id);
