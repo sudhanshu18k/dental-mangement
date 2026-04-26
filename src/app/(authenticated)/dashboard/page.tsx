@@ -2,13 +2,14 @@
 
 import { useUser } from '@clerk/nextjs';
 import { useStore } from '@/store';
-import { Users, CalendarDays, IndianRupee, Clock, Plus, Send, MessageCircle } from 'lucide-react';
+import { Users, CalendarDays, IndianRupee, Clock, Plus, Send, MessageCircle, Bell } from 'lucide-react';
 import { isToday } from 'date-fns';
 import Link from 'next/link';
+import { useMemo } from 'react';
 
 export default function DashboardPage() {
   const { user } = useUser();
-  const { patients, appointments, invoices } = useStore();
+  const { patients, appointments, invoices, followUps } = useStore();
 
   const totalPatients = patients.length;
   const todayAppointments = appointments.filter(a => isToday(new Date(a.date + 'T00:00:00')));
@@ -19,15 +20,16 @@ export default function DashboardPage() {
     .filter(i => i.status === 'Pending')
     .reduce((acc, curr) => acc + curr.finalAmount, 0);
 
-  const upcomingFollowUps = appointments.flatMap(a =>
-    a.treatments
-      .filter(t => t.followUpDate && new Date(t.followUpDate) >= new Date())
-      .map(t => ({
-        patientName: patients.find(p => p.id === a.patientId)?.name || 'Unknown',
-        followUpDate: t.followUpDate,
-        treatmentNotes: t.notes,
-      }))
-  );
+  // Follow-ups due today or overdue
+  const today = new Date().toISOString().split('T')[0];
+  const pendingFollowUps = useMemo(() => {
+    return followUps
+      .filter(f => f.status === 'pending' && f.dueDate <= today)
+      .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+      .slice(0, 5);
+  }, [followUps, today]);
+
+  const totalPendingFollowUps = followUps.filter(f => f.status === 'pending').length;
 
   const stats = [
     { title: 'Total Patients', value: totalPatients, icon: Users },
@@ -82,9 +84,15 @@ export default function DashboardPage() {
     window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  const typeLabels: Record<string, { label: string; color: string; bg: string }> = {
+    post_treatment: { label: 'Post Treatment', color: '#e11d48', bg: '#fff1f2' },
+    routine_checkup: { label: 'Routine Checkup', color: '#d97706', bg: '#fef9c3' },
+    missed_appointment: { label: 'Missed Appt', color: '#2563eb', bg: '#eff6ff' },
+  };
+
   return (
     <div className="animate-fade-in pb-10">
-      {/* Dashboard Header from Image */}
+      {/* Dashboard Header */}
       <section className="flex flex-wrap justify-between items-start mb-8 gap-4">
         <div>
           <h1 className="headline-lg" style={{ fontSize: '2.2rem', marginBottom: '0.25rem' }}>
@@ -99,7 +107,7 @@ export default function DashboardPage() {
         </Link>
       </section>
 
-      {/* Metric Grid: Row layout with proper spacing */}
+      {/* Metric Grid */}
       <div className="grid grid-4 gap-6 mb-12">
         {stats.map((stat, i) => (
           <div key={i} className="stat-card">
@@ -115,7 +123,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-2 gap-8">
-        {/* Upcoming Appointments Layout */}
+        {/* Upcoming Appointments */}
         <div className="card shadow-md">
           <header className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-2">
@@ -178,32 +186,55 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Upcoming Follow-ups Layout */}
+        {/* Follow-ups Due Today */}
         <div className="card shadow-md">
           <header className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-2">
-              <CalendarDays size={20} className="text-primary" />
-              <h2 className="card-title mb-0">Upcoming Follow-ups</h2>
+              <Bell size={20} className="text-primary" />
+              <h2 className="card-title mb-0">Follow-ups Due</h2>
             </div>
+            {totalPendingFollowUps > 0 && (
+              <Link href="/follow-ups" className="btn btn-sm" style={{ background: '#f0f9ff', color: 'var(--primary)', fontWeight: 700 }}>
+                View All ({totalPendingFollowUps})
+              </Link>
+            )}
           </header>
 
           <div className="flex flex-col gap-3">
-            {upcomingFollowUps.length === 0 ? (
+            {pendingFollowUps.length === 0 ? (
               <div className="empty-state p-8 text-center text-on-surface-variant opacity-60 bg-surface-container-low rounded-xl">
                 System clear. No pending follow-ups.
               </div>
             ) : (
-              upcomingFollowUps.slice(0, 4).map((fu, i) => (
-                <div key={i} className="schedule-item">
-                  <div>
-                    <div style={{ fontWeight: 700 }}>{fu.patientName}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)' }}>{fu.treatmentNotes}</div>
+              pendingFollowUps.map((fu) => {
+                const patient = patients.find(p => p.id === fu.patientId);
+                const tl = typeLabels[fu.type] || { label: fu.type, color: '#6b7280', bg: '#f3f4f6' };
+                const isOverdue = fu.dueDate < today;
+                return (
+                  <div key={fu.id} className="schedule-item" style={{ borderLeft: isOverdue ? '3px solid #e11d48' : undefined }}>
+                    <div>
+                      <div style={{ fontWeight: 700 }}>{patient?.name || 'Unknown'}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--on-surface-variant)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {fu.treatmentType || 'General'}
+                        <span style={{
+                          background: tl.bg,
+                          color: tl.color,
+                          padding: '0.1rem 0.5rem',
+                          borderRadius: '9999px',
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                        }}>
+                          {tl.label}
+                        </span>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: isOverdue ? '#e11d48' : 'var(--on-surface-variant)' }}>
+                      {new Date(fu.dueDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      {isOverdue && <span style={{ marginLeft: '0.35rem', fontWeight: 800 }}>⚠️</span>}
+                    </div>
                   </div>
-                  <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>
-                    {fu.followUpDate}
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

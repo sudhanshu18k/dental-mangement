@@ -1256,7 +1256,17 @@ Thank you for choosing ${clinicName}!`;
                   <label className="form-label" style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, color: 'var(--on-surface-variant)', marginBottom: '0.75rem', display: 'block' }}>Line Items</label>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                     {manualItems.map((item, idx) => (
-                      <div key={idx} style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+                      <div key={idx} style={{ 
+                        position: 'relative',
+                        display: 'flex', 
+                        gap: '0.75rem', 
+                        alignItems: 'center',
+                        padding: manualItems.length > 1 ? '0.75rem' : '0',
+                        paddingRight: manualItems.length > 1 ? '2.75rem' : '0',
+                        background: manualItems.length > 1 ? 'var(--surface-container-low, #f8fafc)' : 'transparent',
+                        borderRadius: manualItems.length > 1 ? '0.875rem' : '0',
+                        border: manualItems.length > 1 ? '1px solid var(--outline-variant, rgba(0,0,0,0.06))' : 'none',
+                      }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <input
                             className="form-input"
@@ -1282,28 +1292,35 @@ Thank you for choosing ${clinicName}!`;
                             />
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => removeManualItem(idx)}
-                          style={{ 
-                            height: '40px',
-                            flexShrink: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: '#fee2e2',
-                            border: '1px solid #f87171',
-                            borderRadius: '0.75rem', 
-                            color: '#dc2626',
-                            cursor: 'pointer',
-                            fontWeight: 700,
-                            fontSize: '0.8rem',
-                            padding: '0 0.75rem',
-                            marginLeft: '0.25rem'
-                          }}
-                        >
-                          Cancel
-                        </button>
+                        {manualItems.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeManualItem(idx)}
+                            title="Remove this item"
+                            style={{ 
+                              position: 'absolute',
+                              top: '50%',
+                              right: '0.5rem',
+                              transform: 'translateY(-50%)',
+                              width: '28px',
+                              height: '28px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              background: '#fee2e2',
+                              border: '1.5px solid #fca5a5',
+                              borderRadius: '50%', 
+                              color: '#dc2626',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s',
+                              padding: 0,
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = '#fecaca'; e.currentTarget.style.borderColor = '#f87171'; }}
+                            onMouseLeave={e => { e.currentTarget.style.background = '#fee2e2'; e.currentTarget.style.borderColor = '#fca5a5'; }}
+                          >
+                            <X size={14} strokeWidth={2.5} />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -27,14 +27,69 @@ function isToday(y: number, m: number, d: number) {
 }
 
 export default function AppointmentsPage() {
-  const { patients, appointments, addPatient, addAppointment, updateAppointment, deleteAppointment } = useStore();
+  const { patients, appointments, addPatient, addAppointment, updateAppointment, deleteAppointment, generateFollowUpsForAppointment } = useStore();
+
+  /* ── Auto-generate follow-ups on status change ── */
+  const handleStatusChange = (appt: Appointment, newStatus: Appointment['status']) => {
+    updateAppointment(appt.id, { status: newStatus });
+    const updatedAppt = { ...appt, status: newStatus };
+    if (newStatus === 'Completed' || newStatus === 'Cancelled') {
+      generateFollowUpsForAppointment(updatedAppt);
+    }
+  };
+
+  /* ── Smart Follow-Up Date Suggestion ── */
+  const SMART_INTERVALS: Record<string, { daysAfter: number; label: string }> = {
+    'root canal':     { daysAfter: 7,   label: '7 days (healing check)' },
+    'extraction':     { daysAfter: 1,   label: '1 day (post-op check)' },
+    'wisdom tooth':   { daysAfter: 2,   label: '2 days (post-extraction)' },
+    'surgery':        { daysAfter: 1,   label: '1 day (post-surgery)' },
+    'gum surgery':    { daysAfter: 7,   label: '7 days (healing check)' },
+    'implant':        { daysAfter: 7,   label: '7 days (implant check)' },
+    'filling':        { daysAfter: 14,  label: '2 weeks (sensitivity check)' },
+    'crown':          { daysAfter: 7,   label: '7 days (fit check)' },
+    'bridge':         { daysAfter: 7,   label: '7 days (fit check)' },
+    'veneer':         { daysAfter: 7,   label: '7 days (veneer check)' },
+    'denture':        { daysAfter: 3,   label: '3 days (adjustment)' },
+    'inlay':          { daysAfter: 14,  label: '2 weeks (check)' },
+    'braces':         { daysAfter: 30,  label: '30 days (monthly adjustment)' },
+    'aligner':        { daysAfter: 14,  label: '14 days (progress check)' },
+    'retainer':       { daysAfter: 90,  label: '3 months (retainer check)' },
+    'cleaning':       { daysAfter: 180, label: '6 months (routine recall)' },
+    'scaling':        { daysAfter: 180, label: '6 months (routine recall)' },
+    'polishing':      { daysAfter: 180, label: '6 months (routine recall)' },
+    'deep cleaning':  { daysAfter: 30,  label: '1 month (re-evaluation)' },
+    'whitening':      { daysAfter: 180, label: '6 months (touch-up)' },
+    'bonding':        { daysAfter: 14,  label: '2 weeks (check)' },
+    'fluoride':       { daysAfter: 180, label: '6 months (next application)' },
+    'sealant':        { daysAfter: 180, label: '6 months (check)' },
+    'consultation':   { daysAfter: 7,   label: '7 days (follow-up visit)' },
+    'checkup':        { daysAfter: 180, label: '6 months (next checkup)' },
+    'x-ray':          { daysAfter: 0,   label: '' },
+  };
+
+  const getSmartFollowUpDate = (treatmentType: string, baseDate: string): { date: string; label: string } | null => {
+    const lower = treatmentType.toLowerCase().trim();
+    let match = SMART_INTERVALS[lower];
+    if (!match) {
+      // Partial match
+      for (const [key, val] of Object.entries(SMART_INTERVALS)) {
+        if (lower.includes(key) || key.includes(lower)) { match = val; break; }
+      }
+    }
+    if (!match || match.daysAfter === 0) return null;
+
+    const base = new Date(baseDate + 'T00:00:00');
+    base.setDate(base.getDate() + match.daysAfter);
+    return { date: base.toISOString().split('T')[0], label: match.label };
+  };
 
   /* ── Calendar state ── */
   const now = new Date();
   const [viewYear, setViewYear] = useState(now.getFullYear());
   const [viewMonth, setViewMonth] = useState(now.getMonth());
   const [selectedDate, setSelectedDate] = useState<string>(toDateStr(now.getFullYear(), now.getMonth(), now.getDate()));
-  const [viewMode, setViewMode] = useState<'calendar' | 'history'>('calendar');
+  const [viewMode, setViewMode] = useState<'calendar' | 'history' | 'daily'>('calendar');
 
   /* ── Modal state ── */
   const [apptModal, setApptModal] = useState<'add' | 'edit' | null>(null);
@@ -475,10 +530,37 @@ export default function AppointmentsPage() {
           <h1 className="page-title">Appointments</h1>
           <p className="page-subtitle">{appointments.length} total appointments</p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem' }}>
-          <button className="btn" style={{ background: 'white', border: '1px solid rgba(0,0,0,0.06)' }} onClick={() => setViewMode(viewMode === 'calendar' ? 'history' : 'calendar')}>
-            {viewMode === 'calendar' ? <><Clock size={17} /> View History</> : <><CalendarDays size={17} /> Calendar View</>}
-          </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          {/* View Mode Switcher */}
+          <div style={{
+            display: 'flex',
+            background: 'var(--surface-container-low, #f1f5f9)',
+            borderRadius: '0.75rem',
+            padding: '0.25rem',
+            border: '1px solid var(--outline-variant, rgba(0,0,0,0.06))',
+          }}>
+            {([
+              { key: 'calendar' as const, icon: <CalendarDays size={15} />, label: 'Month' },
+              { key: 'daily' as const, icon: <Clock size={15} />, label: 'Day' },
+              { key: 'history' as const, icon: <FileText size={15} />, label: 'History' },
+            ]).map(v => (
+              <button
+                key={v.key}
+                onClick={() => setViewMode(v.key)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '0.35rem',
+                  padding: '0.45rem 0.85rem', borderRadius: '0.55rem',
+                  border: 'none', cursor: 'pointer', fontSize: '0.82rem', fontWeight: 700,
+                  background: viewMode === v.key ? 'white' : 'transparent',
+                  color: viewMode === v.key ? 'var(--primary, #0ea5e9)' : 'var(--on-surface-variant, #64748b)',
+                  boxShadow: viewMode === v.key ? '0 2px 8px rgba(0,0,0,0.06)' : 'none',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {v.icon} {v.label}
+              </button>
+            ))}
+          </div>
           <button className="btn btn-primary" onClick={() => openAdd()}>
             <Plus size={18} /> New Appointment
           </button>
@@ -522,7 +604,7 @@ export default function AppointmentsPage() {
                         <td>
                           <select
                             value={a.status}
-                            onChange={e => updateAppointment(a.id, { status: e.target.value as Appointment['status'] })}
+                            onChange={e => handleStatusChange(a, e.target.value as Appointment['status'])}
                             style={{
                               fontSize: '0.75rem',
                               fontWeight: 700,
@@ -613,6 +695,254 @@ export default function AppointmentsPage() {
             </div>
           )}
         </div>
+      ) : viewMode === 'daily' ? (
+        /* ═══════════════════════════════════════════
+           ═══ DAILY TIMELINE VIEW ═══
+           ═══════════════════════════════════════════ */
+        (() => {
+          const dailyDateStr = selectedDate;
+          const dailyDateObj = new Date(dailyDateStr + 'T00:00:00');
+          const dailyLabel = dailyDateObj.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+          const dailyIsToday = dailyDateStr === toDateStr(now.getFullYear(), now.getMonth(), now.getDate());
+
+          const dailyAppts = appointments
+            .filter(a => a.date === dailyDateStr)
+            .sort((a, b) => a.time.localeCompare(b.time));
+
+          // Generate time slots from 8 AM to 9 PM
+          const timeSlots: string[] = [];
+          for (let h = 8; h <= 21; h++) {
+            timeSlots.push(`${pad(h)}:00`);
+          }
+
+          // Stats for this day
+          const scheduled = dailyAppts.filter(a => a.status === 'Scheduled').length;
+          const completed = dailyAppts.filter(a => a.status === 'Completed').length;
+          const cancelled = dailyAppts.filter(a => a.status === 'Cancelled').length;
+          const totalRevenue = dailyAppts.reduce((s, a) => s + (a.treatments || []).reduce((t, tr) => t + (tr.cost || 0), 0), 0);
+
+          // Navigate days
+          const goPrevDay = () => {
+            const d = new Date(dailyDateStr + 'T00:00:00');
+            d.setDate(d.getDate() - 1);
+            setSelectedDate(d.toISOString().split('T')[0]);
+          };
+          const goNextDay = () => {
+            const d = new Date(dailyDateStr + 'T00:00:00');
+            d.setDate(d.getDate() + 1);
+            setSelectedDate(d.toISOString().split('T')[0]);
+          };
+          const goTodayDaily = () => {
+            setSelectedDate(toDateStr(now.getFullYear(), now.getMonth(), now.getDate()));
+          };
+
+          // Current time marker
+          const nowHour = now.getHours();
+          const nowMin = now.getMinutes();
+          const currentTimePercent = dailyIsToday ? ((nowHour - 8) * 60 + nowMin) / (13 * 60) * 100 : -1;
+
+          // Treatment colors
+          const treatmentColors: Record<string, string> = {
+            'Cleaning': '#10b981', 'Scaling': '#10b981', 'Polishing': '#10b981',
+            'Root Canal': '#e11d48', 'Extraction': '#dc2626', 'Surgery': '#dc2626', 'Wisdom Tooth': '#dc2626',
+            'Filling': '#f59e0b', 'Crown': '#8b5cf6', 'Bridge': '#8b5cf6', 'Veneer': '#8b5cf6',
+            'Braces': '#06b6d4', 'Aligner': '#06b6d4', 'Retainer': '#06b6d4',
+            'Consultation': '#6366f1', 'Checkup': '#0ea5e9', 'Whitening': '#ec4899',
+            'Implant': '#7c3aed', 'Denture': '#a855f7',
+          };
+          const getColor = (t: string) => treatmentColors[t] || '#64748b';
+
+          return (
+            <div>
+              {/* Day Navigation */}
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <button onClick={goPrevDay} style={{
+                    width: '36px', height: '36px', borderRadius: '0.75rem', border: '1px solid var(--outline-variant)',
+                    background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  }}><ChevronLeft size={18} /></button>
+                  <h2 style={{ fontSize: '1.35rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>
+                    {dailyLabel}
+                  </h2>
+                  <button onClick={goNextDay} style={{
+                    width: '36px', height: '36px', borderRadius: '0.75rem', border: '1px solid var(--outline-variant)',
+                    background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  }}><ChevronRight size={18} /></button>
+                  {!dailyIsToday && (
+                    <button onClick={goTodayDaily} style={{
+                      padding: '0.4rem 0.85rem', borderRadius: '0.6rem', border: '1px solid var(--primary)',
+                      background: 'var(--info-bg, #f0f9ff)', color: 'var(--primary)', fontWeight: 700,
+                      fontSize: '0.78rem', cursor: 'pointer',
+                    }}>Today</button>
+                  )}
+                  {dailyIsToday && (
+                    <span style={{
+                      padding: '0.3rem 0.7rem', borderRadius: '2rem', background: '#dcfce7',
+                      color: '#16a34a', fontWeight: 700, fontSize: '0.72rem',
+                    }}>● Today</span>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  {dailyAppts.filter(a => a.status === 'Scheduled').length > 0 && (
+                    <button className="btn btn-sm" onClick={() => { dailyAppts.filter(a => a.status === 'Scheduled').forEach(a => sendWhatsAppReminder(a)); }}
+                      style={{ background: '#dcfce7', color: '#16a34a', border: 'none', borderRadius: '0.6rem', fontWeight: 700, fontSize: '0.78rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem', cursor: 'pointer' }}>
+                      <MessageCircle size={14} /> Remind All
+                    </button>
+                  )}
+                  <button className="btn btn-primary btn-sm" onClick={() => openAdd()} style={{ padding: '0.4rem 0.8rem' }}>
+                    <Plus size={14} /> Book
+                  </button>
+                </div>
+              </div>
+
+              {/* Day Stats Bar */}
+              <div style={{
+                display: 'flex', gap: '0.75rem', marginBottom: '1.25rem', flexWrap: 'wrap',
+              }}>
+                {[
+                  { label: 'Total', value: dailyAppts.length, color: '#334155', bg: '#f1f5f9' },
+                  { label: 'Upcoming', value: scheduled, color: '#0ea5e9', bg: '#f0f9ff' },
+                  { label: 'Completed', value: completed, color: '#10b981', bg: '#ecfdf5' },
+                  { label: 'Cancelled', value: cancelled, color: '#ef4444', bg: '#fef2f2' },
+                  { label: 'Revenue', value: `₹${totalRevenue.toLocaleString()}`, color: '#7c3aed', bg: '#f5f3ff' },
+                ].map((s, i) => (
+                  <div key={i} style={{
+                    padding: '0.6rem 1rem', borderRadius: '0.75rem', background: s.bg,
+                    display: 'flex', alignItems: 'center', gap: '0.5rem', minWidth: '100px',
+                  }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, color: 'var(--on-surface-variant)', textTransform: 'uppercase', letterSpacing: '0.03em' }}>{s.label}</span>
+                    <span style={{ fontWeight: 800, fontSize: '1.05rem', color: s.color }}>{s.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Timeline */}
+              <div className="card" style={{
+                padding: 0, overflow: 'hidden', borderRadius: '1.5rem',
+                border: '1px solid var(--outline-variant)', background: 'white',
+              }}>
+                {dailyAppts.length === 0 ? (
+                  <div style={{ padding: '4rem 2rem', textAlign: 'center' }}>
+                    <CalendarDays size={48} strokeWidth={1} style={{ color: 'var(--on-surface-variant)', opacity: 0.3, marginBottom: '1rem' }} />
+                    <p style={{ fontWeight: 600, color: 'var(--on-surface-variant)', marginBottom: '0.75rem' }}>No appointments on this day</p>
+                    <button className="btn btn-primary btn-sm" onClick={() => openAdd()}>
+                      <Plus size={14} /> Schedule one
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ position: 'relative' }}>
+                    {/* Current time indicator */}
+                    {currentTimePercent >= 0 && currentTimePercent <= 100 && (
+                      <div style={{
+                        position: 'absolute', left: '80px', right: 0, zIndex: 10,
+                        top: `${currentTimePercent}%`, display: 'flex', alignItems: 'center',
+                      }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', flexShrink: 0, marginLeft: '-4px' }} />
+                        <div style={{ flex: 1, height: '2px', background: '#ef4444' }} />
+                      </div>
+                    )}
+
+                    {timeSlots.map((slot, si) => {
+                      const slotH = parseInt(slot.split(':')[0]);
+                      const slotAppts = dailyAppts.filter(a => {
+                        const aH = parseInt(a.time.split(':')[0]);
+                        return aH === slotH;
+                      });
+                      const h12 = slotH > 12 ? slotH - 12 : slotH === 0 ? 12 : slotH;
+                      const ampm = slotH >= 12 ? 'PM' : 'AM';
+
+                      return (
+                        <div key={si} style={{
+                          display: 'flex', minHeight: slotAppts.length > 0 ? 'auto' : '48px',
+                          borderBottom: si < timeSlots.length - 1 ? '1px solid rgba(0,0,0,0.04)' : 'none',
+                        }}>
+                          {/* Time label */}
+                          <div style={{
+                            width: '80px', flexShrink: 0, padding: '0.6rem 0.75rem',
+                            fontSize: '0.78rem', fontWeight: 600, color: '#94a3b8',
+                            borderRight: '1px solid rgba(0,0,0,0.04)', textAlign: 'right',
+                          }}>
+                            {h12} {ampm}
+                          </div>
+
+                          {/* Appointments in this slot */}
+                          <div style={{ flex: 1, padding: slotAppts.length > 0 ? '0.4rem 0.75rem' : '0', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                            {slotAppts.map(a => {
+                              const patient = patients.find(p => p.id === a.patientId);
+                              const cost = (a.treatments || []).reduce((s, t) => s + (t.cost || 0), 0);
+                              const statusColor = a.status === 'Completed' ? '#10b981' : a.status === 'Cancelled' ? '#ef4444' : '#0ea5e9';
+                              const statusBg = a.status === 'Completed' ? '#ecfdf5' : a.status === 'Cancelled' ? '#fef2f2' : '#f0f9ff';
+                              const accentColor = getColor(a.treatmentType || '');
+
+                              return (
+                                <div key={a.id} style={{
+                                  display: 'flex', alignItems: 'center', gap: '0.75rem',
+                                  padding: '0.75rem 1rem', borderRadius: '0.875rem',
+                                  background: `linear-gradient(135deg, ${accentColor}08, ${accentColor}04)`,
+                                  border: `1px solid ${accentColor}20`,
+                                  borderLeft: `4px solid ${accentColor}`,
+                                  transition: 'all 0.15s',
+                                  cursor: 'pointer',
+                                }} onClick={() => openEdit(a)}>
+                                  {/* Time */}
+                                  <div style={{ fontWeight: 800, fontSize: '0.9rem', color: accentColor, minWidth: '48px' }}>
+                                    {a.time}
+                                  </div>
+                                  {/* Patient & Treatment */}
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.15rem' }}>
+                                      <span style={{ fontWeight: 700, fontSize: '0.95rem', color: '#1e293b' }}>{patient?.name || 'Unknown'}</span>
+                                      <span style={{
+                                        fontSize: '0.65rem', fontWeight: 700, padding: '0.1rem 0.45rem',
+                                        borderRadius: '0.4rem', background: statusBg, color: statusColor,
+                                      }}>{a.status}</span>
+                                    </div>
+                                    <div style={{ fontSize: '0.78rem', color: '#64748b', display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                      {a.treatmentType && <span>🦷 {a.treatmentType}</span>}
+                                      {patient?.phone && <span>📞 {patient.phone}</span>}
+                                      {a.treatments && a.treatments.length > 0 && <span>Tooth #{a.treatments.map(t => t.toothNumber).join(', ')}</span>}
+                                    </div>
+                                  </div>
+                                  {/* Cost & Actions */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexShrink: 0 }}>
+                                    {cost > 0 && <span style={{ fontWeight: 800, fontSize: '1rem', color: '#1e293b' }}>₹{cost.toLocaleString()}</span>}
+                                    <select
+                                      value={a.status}
+                                      onClick={e => e.stopPropagation()}
+                                      onChange={e => { e.stopPropagation(); handleStatusChange(a, e.target.value as Appointment['status']); }}
+                                      style={{
+                                        fontSize: '0.7rem', fontWeight: 700, padding: '0.2rem 0.5rem',
+                                        borderRadius: '0.5rem', background: statusBg, color: statusColor,
+                                        border: 'none', cursor: 'pointer',
+                                      }}
+                                    >
+                                      <option value="Scheduled">Scheduled</option>
+                                      <option value="Completed">Completed</option>
+                                      <option value="Cancelled">Cancelled</option>
+                                    </select>
+                                    <button onClick={e => { e.stopPropagation(); sendWhatsAppReminder(a); }} style={{
+                                      background: 'none', border: 'none', color: '#25D366', cursor: 'pointer', padding: '0.3rem',
+                                    }} title="WhatsApp"><MessageCircle size={16} /></button>
+                                    <button onClick={e => { e.stopPropagation(); if (confirm('Delete?')) deleteAppointment(a.id); }} style={{
+                                      background: 'none', border: 'none', color: '#f87171', cursor: 'pointer', padding: '0.3rem',
+                                    }} title="Delete"><Trash2 size={16} /></button>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()
       ) : (
         <div className="cal-layout">
         {/* ═══ Calendar Card ═══ */}
@@ -717,7 +1047,7 @@ export default function AppointmentsPage() {
                         <span style={{ fontWeight: 700, fontSize: '1.05rem', color: '#1e293b' }}>{patient?.name || 'Unknown'}</span>
                         <select
                           value={a.status}
-                          onChange={e => updateAppointment(a.id, { status: e.target.value as Appointment['status'] })}
+                          onChange={e => handleStatusChange(a, e.target.value as Appointment['status'])}
                           style={{
                             fontSize: '0.7rem',
                             fontWeight: 700,
@@ -999,16 +1329,106 @@ export default function AppointmentsPage() {
 
               <div className="form-group">
                 <label className="appt-label">Treatment Type</label>
-                <select className="form-select" value={current.treatmentType || ''} onChange={e => setCurrent({ ...current, treatmentType: e.target.value })}>
+                <select className="form-select" value={current.treatmentType || ''} onChange={e => {
+                  const treatment = e.target.value;
+                  setCurrent({ ...current, treatmentType: treatment });
+                  // Smart auto-fill follow-up date based on treatment
+                  if (treatment && apptModal === 'add') {
+                    const suggestion = getSmartFollowUpDate(treatment, current.date || new Date().toISOString().split('T')[0]);
+                    if (suggestion) {
+                      setCurrent(prev => ({ ...prev, treatmentType: treatment, tempFollowUpDate: suggestion.date }));
+                    }
+                  }
+                }}>
                   <option value="">Select treatment...</option>
-                  <option value="Cleaning">Cleaning</option>
-                  <option value="Filling">Filling</option>
-                  <option value="Root Canal">Root Canal</option>
-                  <option value="Extraction">Extraction</option>
-                  <option value="Crown">Crown</option>
-                  <option value="Consultation">Consultation</option>
+                  <optgroup label="General">
+                    <option value="Consultation">Consultation</option>
+                    <option value="Checkup">Checkup</option>
+                    <option value="X-Ray">X-Ray</option>
+                  </optgroup>
+                  <optgroup label="Preventive">
+                    <option value="Cleaning">Cleaning</option>
+                    <option value="Scaling">Scaling</option>
+                    <option value="Polishing">Polishing</option>
+                    <option value="Deep Cleaning">Deep Cleaning</option>
+                    <option value="Fluoride">Fluoride Treatment</option>
+                    <option value="Sealant">Sealant</option>
+                  </optgroup>
+                  <optgroup label="Restorative">
+                    <option value="Filling">Filling</option>
+                    <option value="Root Canal">Root Canal</option>
+                    <option value="Crown">Crown</option>
+                    <option value="Bridge">Bridge</option>
+                    <option value="Veneer">Veneer</option>
+                    <option value="Denture">Denture</option>
+                    <option value="Inlay">Inlay/Onlay</option>
+                  </optgroup>
+                  <optgroup label="Surgery">
+                    <option value="Extraction">Extraction</option>
+                    <option value="Wisdom Tooth">Wisdom Tooth</option>
+                    <option value="Implant">Implant</option>
+                    <option value="Gum Surgery">Gum Surgery</option>
+                    <option value="Surgery">Other Surgery</option>
+                  </optgroup>
+                  <optgroup label="Orthodontics">
+                    <option value="Braces">Braces</option>
+                    <option value="Aligner">Aligner</option>
+                    <option value="Retainer">Retainer</option>
+                  </optgroup>
+                  <optgroup label="Cosmetic">
+                    <option value="Whitening">Whitening</option>
+                    <option value="Bonding">Bonding</option>
+                  </optgroup>
                 </select>
               </div>
+
+              {/* ── Smart Follow-Up Suggestion ── */}
+              {current.treatmentType && apptModal === 'add' && (() => {
+                const suggestion = getSmartFollowUpDate(current.treatmentType, current.date || new Date().toISOString().split('T')[0]);
+                if (!suggestion) return null;
+                return (
+                  <div style={{
+                    background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)',
+                    border: '1px solid #bbf7d0',
+                    borderRadius: '0.875rem',
+                    padding: '0.85rem 1rem',
+                    marginBottom: '1rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                  }}>
+                    <div style={{
+                      width: '36px', height: '36px', borderRadius: '10px',
+                      background: '#dcfce7', display: 'flex', alignItems: 'center',
+                      justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0,
+                    }}>💡</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#166534', marginBottom: '0.15rem' }}>
+                        Smart Suggestion
+                      </div>
+                      <div style={{ fontSize: '0.78rem', color: '#15803d', lineHeight: 1.4 }}>
+                        Best follow-up for <strong>{current.treatmentType}</strong>: <strong>{suggestion.label}</strong> — {new Date(suggestion.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                      </div>
+                    </div>
+                    {current.tempFollowUpDate !== suggestion.date && (
+                      <button
+                        type="button"
+                        onClick={() => setCurrent({ ...current, tempFollowUpDate: suggestion.date })}
+                        style={{
+                          flexShrink: 0, background: '#16a34a', color: 'white',
+                          border: 'none', borderRadius: '0.5rem', padding: '0.4rem 0.75rem',
+                          fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        Apply
+                      </button>
+                    )}
+                    {current.tempFollowUpDate === suggestion.date && (
+                      <span style={{ flexShrink: 0, color: '#16a34a', fontWeight: 700, fontSize: '0.82rem' }}>✓ Applied</span>
+                    )}
+                  </div>
+                );
+              })()}
 
               {apptModal === 'add' && (
                 <>
@@ -1036,7 +1456,7 @@ export default function AppointmentsPage() {
                       <input type="number" min="0" className="form-input" placeholder="0" value={current.tempCost || ''} onChange={e => setCurrent({ ...current, tempCost: Number(e.target.value) })} />
                     </div>
                     <div className="form-group">
-                      <label className="appt-label">Follow-up</label>
+                      <label className="appt-label">Follow-up Date</label>
                       <input type="date" className="form-input" value={current.tempFollowUpDate || ''} onChange={e => setCurrent({ ...current, tempFollowUpDate: e.target.value })} />
                     </div>
                   </div>

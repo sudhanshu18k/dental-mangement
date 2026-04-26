@@ -126,3 +126,31 @@ export type SupportTicket = {
   createdAt: string;
   updatedAt: string;
 };
+
+export type FollowUpType = 'post_treatment' | 'routine_checkup' | 'missed_appointment';
+export type FollowUpStatus = 'pending' | 'sent' | 'dismissed';
+
+export type FollowUp = {
+  id: string;
+  patientId: string;
+  appointmentId: string;
+  type: FollowUpType;
+  dueDate: string;
+  status: FollowUpStatus;
+  treatmentType?: string;
+  notes?: string;
+  createdAt: string;
+  sentAt?: string;
+  dismissedAt?: string;
+  templateId?: string;
+};
+
+export type FollowUpTemplate = {
+  id: string;
+  name: string;
+  type: FollowUpType;
+  treatmentType?: string;
+  message: string;
+  isDefault: boolean;
+  createdAt: string;
+};

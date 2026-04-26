@@ -2,15 +2,16 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { LayoutDashboard, Users, CalendarDays, Receipt, Shield, Settings, LogOut, Clock, AlertTriangle, Lock, CheckCircle } from 'lucide-react';
+import { LayoutDashboard, Users, CalendarDays, Receipt, Shield, Settings, LogOut, Clock, AlertTriangle, Lock, CheckCircle, Bell } from 'lucide-react';
 import { useUser, useClerk } from '@clerk/nextjs';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { useStore } from '@/store';
 
 const navItems = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
   { name: 'Patients', path: '/patients', icon: Users },
   { name: 'Appointments', path: '/appointments', icon: CalendarDays },
+  { name: 'Follow-ups', path: '/follow-ups', icon: Bell },
   { name: 'Billing', path: '/billing', icon: Receipt },
   { name: 'Admin', path: '/settings', icon: Shield },
 ];
@@ -20,7 +21,12 @@ export default function Sidebar() {
   const router = useRouter();
   const { user } = useUser();
   const { signOut } = useClerk();
-  const { activeClinic, userData, isReadOnly, subscriptionDaysLeft } = useStore();
+  const { activeClinic, userData, isReadOnly, subscriptionDaysLeft, followUps } = useStore();
+
+  const pendingFollowUpCount = useMemo(() => {
+    const today = new Date().toISOString().split('T')[0];
+    return followUps.filter(f => f.status === 'pending' && f.dueDate <= today).length;
+  }, [followUps]);
   
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -118,6 +124,9 @@ export default function Sidebar() {
             >
               <item.icon size={20} strokeWidth={isActive ? 2.5 : 2} />
               <span className="nav-label">{itemName}</span>
+              {item.name === 'Follow-ups' && pendingFollowUpCount > 0 && (
+                <span className="sidebar-followup-badge">{pendingFollowUpCount}</span>
+              )}
             </Link>
           );
         })}

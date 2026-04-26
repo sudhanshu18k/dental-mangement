@@ -2,9 +2,9 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Patient, Appointment, Invoice, UserData, Clinic } from '@/types';
+import { Patient, Appointment, Invoice, UserData, Clinic, FollowUp, FollowUpTemplate } from '@/types';
 import { useAuth, useUser } from '@clerk/nextjs';
-import { collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc, getDocs, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
 
@@ -12,6 +12,8 @@ interface StoreState {
   patients: Patient[];
   appointments: Appointment[];
   invoices: Invoice[];
+  followUps: FollowUp[];
+  followUpTemplates: FollowUpTemplate[];
   userData: UserData | null;
   activeClinic: Clinic | null;
   activeClinicId: string | null;
@@ -28,6 +30,13 @@ interface StoreState {
   addInvoice: (i: Invoice) => void;
   updateInvoice: (id: string, i: Partial<Invoice>) => void;
   deleteInvoice: (id: string) => void;
+  addFollowUp: (f: FollowUp) => void;
+  updateFollowUp: (id: string, f: Partial<FollowUp>) => void;
+  deleteFollowUp: (id: string) => void;
+  addFollowUpTemplate: (t: FollowUpTemplate) => void;
+  updateFollowUpTemplate: (id: string, t: Partial<FollowUpTemplate>) => void;
+  deleteFollowUpTemplate: (id: string) => void;
+  generateFollowUpsForAppointment: (appt: Appointment) => void;
 }
 
 const StoreContext = createContext<StoreState | undefined>(undefined);
@@ -53,6 +62,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [patients, setPatients] = useState<Patient[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [followUps, setFollowUps] = useState<FollowUp[]>([]);
+  const [followUpTemplates, setFollowUpTemplates] = useState<FollowUpTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimer = useRef<NodeJS.Timeout | null>(null);
@@ -96,6 +107,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setPatients([]);
       setAppointments([]);
       setInvoices([]);
+      setFollowUps([]);
+      setFollowUpTemplates([]);
       setIsLoading(false);
       return;
     }
@@ -238,6 +251,8 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setPatients([]);
       setAppointments([]);
       setInvoices([]);
+      setFollowUps([]);
+      setFollowUpTemplates([]);
       return;
     }
 
@@ -254,10 +269,52 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setIsLoading(false);
     });
 
+    const unsubFollowUps = onSnapshot(collection(db, 'clinics', activeClinicId, 'followUps'), snap => {
+      setFollowUps(snap.docs.map(d => ({ ...(d.data() as FollowUp), id: d.id })));
+    });
+
+    const unsubTemplates = onSnapshot(collection(db, 'clinics', activeClinicId, 'followUpTemplates'), async (snap) => {
+      const templates = snap.docs.map(d => ({ ...(d.data() as FollowUpTemplate), id: d.id }));
+      if (templates.length === 0) {
+        // Seed default templates
+        const defaults: Omit<FollowUpTemplate, 'id'>[] = [
+          {
+            name: 'Post Treatment Follow-up',
+            type: 'post_treatment',
+            message: 'Hello {{patientName}}, this is a follow-up from *{{clinicName}}*. How are you feeling after your *{{treatmentType}}*? Please let us know if you have any pain or concerns.\n\n📅 *Your next visit is scheduled for:* {{followUpDate}}\n\nPlease reply to confirm or reschedule. 🙏',
+            isDefault: true,
+            createdAt: new Date().toISOString(),
+          },
+          {
+            name: 'Routine Checkup Reminder',
+            type: 'routine_checkup',
+            message: 'Hello {{patientName}}, it\'s time for your routine dental checkup at *{{clinicName}}*! 😊\n\n📅 *Suggested visit date:* {{followUpDate}}\n\nRegular checkups help keep your smile healthy. Please reply to book your appointment!',
+            isDefault: true,
+            createdAt: new Date().toISOString(),
+          },
+          {
+            name: 'Missed Appointment',
+            type: 'missed_appointment',
+            message: 'Hello {{patientName}}, we noticed you missed your appointment at *{{clinicName}}* on *{{appointmentDate}}*. We\'d love to reschedule at your convenience!\n\n📅 *We suggest visiting on:* {{followUpDate}}\n\nPlease reply or call us to confirm. 📞',
+            isDefault: true,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+        for (const t of defaults) {
+          const ref = doc(collection(db, 'clinics', activeClinicId, 'followUpTemplates'));
+          await setDoc(ref, { ...t, id: ref.id });
+        }
+      } else {
+        setFollowUpTemplates(templates);
+      }
+    });
+
     return () => {
       unsubPatients();
       unsubAppointments();
       unsubInvoices();
+      unsubFollowUps();
+      unsubTemplates();
     };
   }, [activeClinicId]);
 
@@ -319,14 +376,178 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     deleteDoc(doc(db, 'clinics', activeClinicId, 'invoices', id));
   }, [activeClinicId, isReadOnly, showReadOnlyToast]);
 
+  // ── Follow-Up CRUD ──
+  const addFollowUp = useCallback((f: FollowUp) => {
+    if (!activeClinicId) return;
+    if (isReadOnly) { showReadOnlyToast(); return; }
+    const ref = doc(collection(db, 'clinics', activeClinicId, 'followUps'));
+    setDoc(ref, { ...f, id: ref.id });
+  }, [activeClinicId, isReadOnly, showReadOnlyToast]);
+
+  const updateFollowUp = useCallback((id: string, f: Partial<FollowUp>) => {
+    if (!activeClinicId) return;
+    if (isReadOnly) { showReadOnlyToast(); return; }
+    setDoc(doc(db, 'clinics', activeClinicId, 'followUps', id), f, { merge: true });
+  }, [activeClinicId, isReadOnly, showReadOnlyToast]);
+
+  const deleteFollowUp = useCallback((id: string) => {
+    if (!activeClinicId) return;
+    if (isReadOnly) { showReadOnlyToast(); return; }
+    deleteDoc(doc(db, 'clinics', activeClinicId, 'followUps', id));
+  }, [activeClinicId, isReadOnly, showReadOnlyToast]);
+
+  // ── Follow-Up Template CRUD ──
+  const addFollowUpTemplate = useCallback((t: FollowUpTemplate) => {
+    if (!activeClinicId) return;
+    if (isReadOnly) { showReadOnlyToast(); return; }
+    const ref = doc(collection(db, 'clinics', activeClinicId, 'followUpTemplates'));
+    setDoc(ref, { ...t, id: ref.id });
+  }, [activeClinicId, isReadOnly, showReadOnlyToast]);
+
+  const updateFollowUpTemplate = useCallback((id: string, t: Partial<FollowUpTemplate>) => {
+    if (!activeClinicId) return;
+    if (isReadOnly) { showReadOnlyToast(); return; }
+    setDoc(doc(db, 'clinics', activeClinicId, 'followUpTemplates', id), t, { merge: true });
+  }, [activeClinicId, isReadOnly, showReadOnlyToast]);
+
+  const deleteFollowUpTemplate = useCallback((id: string) => {
+    if (!activeClinicId) return;
+    if (isReadOnly) { showReadOnlyToast(); return; }
+    deleteDoc(doc(db, 'clinics', activeClinicId, 'followUpTemplates', id));
+  }, [activeClinicId, isReadOnly, showReadOnlyToast]);
+
+  // ── Smart Treatment → Follow-Up Interval Map ──
+  // Each treatment type maps to an array of follow-ups with specific intervals
+  const TREATMENT_FOLLOWUP_MAP: Record<string, { type: FollowUp['type']; daysAfter: number; label: string }[]> = {
+    // Surgical / Invasive
+    'root canal':       [{ type: 'post_treatment', daysAfter: 7, label: 'Post Root Canal Check' }],
+    'extraction':       [{ type: 'post_treatment', daysAfter: 1, label: 'Post Extraction Check' }, { type: 'post_treatment', daysAfter: 7, label: '1-Week Healing Check' }],
+    'surgery':          [{ type: 'post_treatment', daysAfter: 1, label: 'Post Surgery Check' }, { type: 'post_treatment', daysAfter: 14, label: '2-Week Healing Review' }],
+    'implant':          [{ type: 'post_treatment', daysAfter: 7, label: 'Post Implant Check' }, { type: 'post_treatment', daysAfter: 90, label: '3-Month Implant Review' }],
+    'wisdom tooth':     [{ type: 'post_treatment', daysAfter: 2, label: 'Post Wisdom Tooth Extraction' }, { type: 'post_treatment', daysAfter: 7, label: '1-Week Healing Check' }],
+
+    // Restorative
+    'filling':          [{ type: 'post_treatment', daysAfter: 14, label: 'Post Filling Sensitivity Check' }],
+    'crown':            [{ type: 'post_treatment', daysAfter: 7, label: 'Crown Fit Check' }, { type: 'routine_checkup', daysAfter: 180, label: '6-Month Crown Review' }],
+    'bridge':           [{ type: 'post_treatment', daysAfter: 7, label: 'Bridge Fit Check' }, { type: 'routine_checkup', daysAfter: 180, label: '6-Month Bridge Review' }],
+    'veneer':           [{ type: 'post_treatment', daysAfter: 7, label: 'Veneer Check' }],
+    'denture':          [{ type: 'post_treatment', daysAfter: 3, label: 'Denture Adjustment' }, { type: 'post_treatment', daysAfter: 14, label: '2-Week Denture Review' }],
+    'inlay':            [{ type: 'post_treatment', daysAfter: 14, label: 'Inlay/Onlay Check' }],
+    'onlay':            [{ type: 'post_treatment', daysAfter: 14, label: 'Inlay/Onlay Check' }],
+
+    // Orthodontics
+    'braces':           [{ type: 'post_treatment', daysAfter: 30, label: 'Monthly Braces Adjustment' }],
+    'orthodontic':      [{ type: 'post_treatment', daysAfter: 30, label: 'Monthly Orthodontic Check' }],
+    'aligner':          [{ type: 'post_treatment', daysAfter: 14, label: 'Aligner Progress Check' }],
+    'retainer':         [{ type: 'post_treatment', daysAfter: 90, label: '3-Month Retainer Check' }],
+
+    // Periodontal
+    'scaling':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
+    'cleaning':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
+    'polishing':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
+    'deep cleaning':    [{ type: 'post_treatment', daysAfter: 30, label: '1-Month Perio Re-evaluation' }, { type: 'routine_checkup', daysAfter: 90, label: '3-Month Perio Maintenance' }],
+    'gum treatment':    [{ type: 'post_treatment', daysAfter: 14, label: '2-Week Gum Check' }, { type: 'routine_checkup', daysAfter: 90, label: '3-Month Perio Review' }],
+    'gum surgery':      [{ type: 'post_treatment', daysAfter: 7, label: 'Post Gum Surgery Check' }],
+
+    // Cosmetic
+    'whitening':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Whitening Touch-up' }],
+    'bleaching':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Bleaching Review' }],
+    'bonding':          [{ type: 'post_treatment', daysAfter: 14, label: 'Bonding Check' }],
+
+    // Pediatric
+    'sealant':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Sealant Check' }],
+    'fluoride':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Fluoride Application' }],
+    'space maintainer': [{ type: 'post_treatment', daysAfter: 30, label: 'Space Maintainer Check' }],
+
+    // General
+    'consultation':     [{ type: 'routine_checkup', daysAfter: 7, label: 'Follow-up Consultation' }],
+    'checkup':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
+    'check-up':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
+    'routine':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
+    'x-ray':            [],
+    'xray':             [],
+  };
+
+  // Helper: match treatment to follow-up rules
+  const getFollowUpRules = (treatmentType: string) => {
+    const lower = treatmentType.toLowerCase().trim();
+    // Try exact match first
+    if (TREATMENT_FOLLOWUP_MAP[lower]) return TREATMENT_FOLLOWUP_MAP[lower];
+    // Try partial match
+    for (const [key, rules] of Object.entries(TREATMENT_FOLLOWUP_MAP)) {
+      if (lower.includes(key) || key.includes(lower)) return rules;
+    }
+    // Fallback: generic post-treatment at 7 days
+    return [{ type: 'post_treatment' as const, daysAfter: 7, label: 'Post Treatment Follow-up' }];
+  };
+
+  // ── Auto-generate follow-ups for a completed/cancelled appointment ──
+  const generateFollowUpsForAppointment = useCallback(async (appt: Appointment) => {
+    if (!activeClinicId) return;
+    if (isReadOnly) { showReadOnlyToast(); return; }
+
+    // Check if follow-ups already exist for this appointment
+    const existingSnap = await getDocs(
+      query(collection(db, 'clinics', activeClinicId, 'followUps'), where('appointmentId', '==', appt.id))
+    );
+    const existingLabels = existingSnap.docs.map(d => (d.data() as FollowUp).notes || '');
+
+    const now = new Date();
+
+    if (appt.status === 'Completed') {
+      const rules = getFollowUpRules(appt.treatmentType || 'general');
+
+      for (const rule of rules) {
+        // Skip if a follow-up with same label already exists
+        if (existingLabels.includes(rule.label)) continue;
+
+        const dueDate = new Date(now);
+        dueDate.setDate(dueDate.getDate() + rule.daysAfter);
+        const ref = doc(collection(db, 'clinics', activeClinicId, 'followUps'));
+        await setDoc(ref, {
+          id: ref.id,
+          patientId: appt.patientId,
+          appointmentId: appt.id,
+          type: rule.type,
+          dueDate: dueDate.toISOString().split('T')[0],
+          status: 'pending',
+          treatmentType: appt.treatmentType || '',
+          notes: rule.label,
+          createdAt: now.toISOString(),
+        });
+      }
+    } else if (appt.status === 'Cancelled') {
+      // Missed appointment follow-up (1 day later)
+      if (!existingLabels.includes('Missed Appointment')) {
+        const dueDate = new Date(now);
+        dueDate.setDate(dueDate.getDate() + 1);
+        const ref = doc(collection(db, 'clinics', activeClinicId, 'followUps'));
+        await setDoc(ref, {
+          id: ref.id,
+          patientId: appt.patientId,
+          appointmentId: appt.id,
+          type: 'missed_appointment',
+          dueDate: dueDate.toISOString().split('T')[0],
+          status: 'pending',
+          treatmentType: appt.treatmentType || '',
+          notes: 'Missed Appointment',
+          createdAt: now.toISOString(),
+        });
+      }
+    }
+  }, [activeClinicId, isReadOnly, showReadOnlyToast]);
+
   return (
     <StoreContext.Provider value={{
-      patients, appointments, invoices,
+      patients, appointments, invoices, followUps, followUpTemplates,
       userData, activeClinic, activeClinicId, setActiveClinicId, isLoading,
       isReadOnly, subscriptionDaysLeft,
       addPatient, updatePatient, deletePatient,
       addAppointment, updateAppointment, deleteAppointment,
       addInvoice, updateInvoice, deleteInvoice,
+      addFollowUp, updateFollowUp, deleteFollowUp,
+      addFollowUpTemplate, updateFollowUpTemplate, deleteFollowUpTemplate,
+      generateFollowUpsForAppointment,
     }}>
       {children}
       {/* Read-only toast notification */}
