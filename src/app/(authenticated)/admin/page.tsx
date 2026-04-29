@@ -30,7 +30,8 @@ import {
   Eye,
   Search,
   MessageCircle,
-  Phone
+  Phone,
+  Send
 } from 'lucide-react';
 
 type AdminStats = {
@@ -73,6 +74,7 @@ export default function AdminPage() {
   const [assignPaymentAmount, setAssignPaymentAmount] = useState('');
   const [assignUpiRef, setAssignUpiRef] = useState('');
   const [assignPaymentDate, setAssignPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [assignPaymentMethod, setAssignPaymentMethod] = useState<'upi' | 'cash'>('upi');
   const [savingAssign, setSavingAssign] = useState(false);
 
   // History state
@@ -174,6 +176,17 @@ export default function AdminPage() {
     });
     return () => unsub();
   }, []);
+
+  // Delete Payment
+  const handleDeletePayment = async (paymentId: string) => {
+    if (!confirm('Are you sure you want to delete this payment record? This action cannot be undone.')) return;
+    try {
+      await deleteDoc(doc(db, 'subscriptionPayments', paymentId));
+    } catch (error) {
+      console.error('Failed to delete payment', error);
+      alert('Failed to delete payment record.');
+    }
+  };
 
   // Send Broadcast Notification
   const handleSendBroadcast = async () => {
@@ -495,6 +508,7 @@ export default function AdminPage() {
     setAssignCycle('monthly');
     setAssignPaymentAmount(currentPlan ? String(currentPlan.monthlyPrice) : '');
     setAssignUpiRef('');
+    setAssignPaymentMethod('upi');
     setAssignPaymentDate(new Date().toISOString().split('T')[0]);
   };
 
@@ -533,7 +547,7 @@ export default function AdminPage() {
           clinicName: assignModal.name || assignModal.email,
           email: assignModal.email,
           amount: Number(assignPaymentAmount),
-          paymentMethod: assignUpiRef ? 'upi' : 'cash',
+          paymentMethod: assignPaymentMethod,
           transactionId: assignUpiRef || '',
           planName: `${plan.name} (${assignCycle === 'monthly' ? 'Monthly' : 'Yearly'})`,
           paidAt: new Date(assignPaymentDate).toISOString(),
@@ -1394,48 +1408,64 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 380px', gap: '2rem', alignItems: 'start' }}>
             {/* Composer */}
-            <div className="card" style={{ padding: '2rem', borderRadius: '1.5rem', background: '#fff', border: '1px solid #f1f5f9' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--on-surface)', marginBottom: '1.5rem' }}>Compose Message</h3>
+            <div className="card" style={{ padding: '2.5rem', borderRadius: '1.5rem', background: '#fff', border: '1px solid #f1f5f9', boxShadow: '0 10px 40px rgba(0,0,0,0.03)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '2rem' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6366f1' }}>
+                  <MessageCircle size={20} />
+                </div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Compose Message</h3>
+              </div>
               
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="form-label" style={{ fontWeight: 700 }}>Target Audience</label>
-                <select 
-                  value={broadcastAudience} 
-                  onChange={e => setBroadcastAudience(e.target.value)}
-                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', fontSize: '0.95rem' }}
-                >
-                  <option value="All">All Users</option>
-                  <option value="Active">Active Subscription</option>
-                  <option value="Trial">Trial Users</option>
-                  <option value="Expiring">Expiring Soon (≤ 7 days)</option>
-                  <option value="Expired">Expired Users</option>
-                </select>
-                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
-                  This will send an in-app notification to the selected clinics.
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                  Target Audience
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <select 
+                    value={broadcastAudience} 
+                    onChange={e => setBroadcastAudience(e.target.value)}
+                    style={{ width: '100%', padding: '1rem 1.25rem', borderRadius: '1rem', border: '1px solid #e2e8f0', fontSize: '0.95rem', color: 'var(--on-surface)', backgroundColor: '#f8fafc', outline: 'none', appearance: 'none', cursor: 'pointer', fontWeight: 600 }}
+                  >
+                    <option value="All">All Users</option>
+                    <option value="Active">Active Subscription</option>
+                    <option value="Trial">Trial Users</option>
+                    <option value="Expiring">Expiring Soon (≤ 7 days)</option>
+                    <option value="Expired">Expired Users</option>
+                  </select>
+                  <div style={{ position: 'absolute', right: '1.25rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#94a3b8' }}>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                  </div>
+                </div>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                  <Users size={14} /> This will send an in-app notification to the selected clinics.
                 </div>
               </div>
 
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="form-label" style={{ fontWeight: 700 }}>Notification Title</label>
+              <div style={{ marginBottom: '1.75rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                  Notification Title
+                </label>
                 <input 
                   type="text" 
                   value={broadcastTitle}
                   onChange={e => setBroadcastTitle(e.target.value)}
                   placeholder="e.g. System Maintenance on Sunday"
-                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', fontSize: '0.95rem' }}
+                  style={{ width: '100%', padding: '1rem 1.25rem', borderRadius: '1rem', border: '1px solid #e2e8f0', fontSize: '0.95rem', color: 'var(--on-surface)', backgroundColor: '#f8fafc', outline: 'none', fontWeight: 500 }}
                 />
               </div>
 
-              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                <label className="form-label" style={{ fontWeight: 700 }}>Message</label>
+              <div style={{ marginBottom: '2.5rem' }}>
+                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                  Message Content
+                </label>
                 <textarea 
                   value={broadcastMessage}
                   onChange={e => setBroadcastMessage(e.target.value)}
                   placeholder="Write your announcement here..."
-                  rows={5}
-                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', fontSize: '0.95rem', resize: 'vertical' }}
+                  rows={6}
+                  style={{ width: '100%', padding: '1.25rem', borderRadius: '1rem', border: '1px solid #e2e8f0', fontSize: '0.95rem', color: 'var(--on-surface)', backgroundColor: '#f8fafc', outline: 'none', resize: 'vertical', lineHeight: '1.6' }}
                 />
               </div>
 
@@ -1443,32 +1473,58 @@ export default function AdminPage() {
                 onClick={handleSendBroadcast}
                 disabled={sendingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()}
                 style={{ 
-                  width: '100%', padding: '1rem', borderRadius: '1rem', border: 'none', background: '#6366f1', color: 'white',
-                  fontSize: '0.95rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
-                  opacity: (sendingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()) ? 0.6 : 1
+                  width: '100%', padding: '1.1rem', borderRadius: '1rem', border: 'none', 
+                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)', color: 'white',
+                  fontSize: '1rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  opacity: (sendingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()) ? 0.6 : 1,
+                  boxShadow: '0 8px 20px rgba(99,102,241,0.25)', transition: 'all 0.2s'
                 }}
               >
-                {sendingBroadcast ? <Loader2 size={18} className="animate-spin" /> : <MessageCircle size={18} />}
+                {sendingBroadcast ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
                 Send Broadcast
               </button>
             </div>
 
             {/* History */}
-            <div className="card" style={{ padding: '1.5rem', borderRadius: '1.5rem', background: '#fff', border: '1px solid #f1f5f9', maxHeight: '600px', overflowY: 'auto' }}>
-              <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--on-surface)', marginBottom: '1rem' }}>Past Broadcasts</h3>
+            <div className="card" style={{ padding: '2rem', borderRadius: '1.5rem', background: '#fff', border: '1px solid #f1f5f9', boxShadow: '0 4px 20px rgba(0,0,0,0.02)', maxHeight: '700px', overflowY: 'auto' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Past Broadcasts</h3>
+                <div style={{ padding: '0.3rem 0.75rem', background: '#f1f5f9', color: '#64748b', borderRadius: '1rem', fontSize: '0.75rem', fontWeight: 700 }}>
+                  {broadcastHistory.length} Sent
+                </div>
+              </div>
+
               {broadcastHistory.length === 0 ? (
-                <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>No broadcasts sent yet.</div>
+                <div style={{ padding: '4rem 1rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#cbd5e1' }}>
+                    <MessageCircle size={24} />
+                  </div>
+                  <span style={{ color: '#94a3b8', fontSize: '0.9rem', fontWeight: 500 }}>No broadcasts sent yet.</span>
+                </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   {broadcastHistory.map(b => (
-                    <div key={b.id} style={{ padding: '1rem', borderRadius: '1rem', background: '#f8fafc', border: '1px solid #f1f5f9' }}>
-                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
-                        To: {b.targetGroup} ({b.recipientCount})
+                    <div key={b.id} style={{ 
+                      padding: '1.25rem', borderRadius: '1rem', background: '#f8fafc', 
+                      border: '1px solid #f1f5f9', borderLeft: '4px solid #6366f1',
+                      transition: 'all 0.2s'
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                        <div style={{ fontSize: '0.7rem', fontWeight: 800, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          To: {b.targetGroup} ({b.recipientCount})
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 600 }}>
+                          {new Date(b.sentAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </div>
                       </div>
-                      <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--on-surface)', marginBottom: '0.3rem' }}>{b.title}</div>
-                      <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.message}</div>
-                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                        Sent {new Date(b.sentAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      <div style={{ fontWeight: 800, fontSize: '1rem', color: 'var(--on-surface)', marginBottom: '0.5rem', wordBreak: 'break-word' }}>
+                        {b.title}
+                      </div>
+                      <div style={{ 
+                        fontSize: '0.85rem', color: '#64748b', lineHeight: '1.5',
+                        wordBreak: 'break-word', overflowWrap: 'anywhere'
+                      }}>
+                        {b.message}
                       </div>
                     </div>
                   ))}
@@ -1509,11 +1565,12 @@ export default function AdminPage() {
                   <th style={thStyle}>AMOUNT</th>
                   <th style={thStyle}>METHOD & REF</th>
                   <th style={thStyle}>RECORDED BY</th>
+                  <th style={thStyle}></th>
                 </tr>
               </thead>
               <tbody>
                 {payments.length === 0 ? (
-                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>No payment records found.</td></tr>
+                  <tr><td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>No payment records found.</td></tr>
                 ) : (
                   payments.map(p => (
                     <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
@@ -1534,10 +1591,26 @@ export default function AdminPage() {
                         <div style={{ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '1rem', background: '#f1f5f9', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#475569' }}>
                           {p.paymentMethod}
                         </div>
-                        {p.transactionId && <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.3rem', fontFamily: 'monospace' }}>{p.transactionId}</div>}
+                        {p.transactionId ? (
+                          <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.3rem', fontFamily: 'monospace' }}>{p.transactionId}</div>
+                        ) : (
+                          <div style={{ fontSize: '0.75rem', color: '#cbd5e1', marginTop: '0.3rem', fontStyle: 'italic' }}>No Reference</div>
+                        )}
                       </td>
                       <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.8rem', color: '#94a3b8' }}>
                         {p.recordedBy.split('@')[0]}
+                      </td>
+                      <td style={{ padding: '1.25rem 1.5rem', textAlign: 'right' }}>
+                        <button 
+                          onClick={() => handleDeletePayment(p.id)}
+                          style={{
+                            background: '#fee2e2', color: '#ef4444', border: 'none', padding: '0.5rem', borderRadius: '0.5rem',
+                            cursor: 'pointer', transition: 'all 0.2s', display: 'inline-flex', alignItems: 'center', justifyContent: 'center'
+                          }}
+                          title="Delete Payment Record"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -1725,6 +1798,30 @@ export default function AdminPage() {
                     <CreditCard size={16} color="#059669" /> Payment Proof <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>(Optional)</span>
                   </h4>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div style={{ gridColumn: '1 / -1', display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <button
+                        type="button"
+                        onClick={() => setAssignPaymentMethod('upi')}
+                        style={{
+                          flex: 1, padding: '0.5rem', borderRadius: '0.5rem', border: assignPaymentMethod === 'upi' ? '2px solid #059669' : '1px solid #e2e8f0',
+                          background: assignPaymentMethod === 'upi' ? '#f0fdf4' : '#fff', color: assignPaymentMethod === 'upi' ? '#059669' : '#64748b',
+                          fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.2s'
+                        }}
+                      >
+                        UPI
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setAssignPaymentMethod('cash')}
+                        style={{
+                          flex: 1, padding: '0.5rem', borderRadius: '0.5rem', border: assignPaymentMethod === 'cash' ? '2px solid #059669' : '1px solid #e2e8f0',
+                          background: assignPaymentMethod === 'cash' ? '#f0fdf4' : '#fff', color: assignPaymentMethod === 'cash' ? '#059669' : '#64748b',
+                          fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer', transition: 'all 0.2s'
+                        }}
+                      >
+                        Cash
+                      </button>
+                    </div>
                     <div>
                       <label className="form-label" style={{ fontSize: '0.75rem' }}>Amount Paid (₹)</label>
                       <input 
@@ -1745,13 +1842,15 @@ export default function AdminPage() {
                       />
                     </div>
                     <div style={{ gridColumn: '1 / -1' }}>
-                      <label className="form-label" style={{ fontSize: '0.75rem' }}>UPI Reference ID (or note)</label>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>
+                        {assignPaymentMethod === 'upi' ? 'UPI Reference ID' : 'Receipt Number or Note'} <span style={{ color: '#94a3b8', fontWeight: 'normal' }}>(Optional)</span>
+                      </label>
                       <input 
                         type="text" 
                         style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
                         value={assignUpiRef}
                         onChange={e => setAssignUpiRef(e.target.value)}
-                        placeholder="e.g. UPI1234567890"
+                        placeholder={assignPaymentMethod === 'upi' ? "e.g. UPI1234567890" : "e.g. Cash Receipt #123"}
                       />
                     </div>
                   </div>
