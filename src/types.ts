@@ -4,11 +4,14 @@ export type Patient = {
   phone: string;
   email: string;
   dob: string;
+  age?: string;
   gender: string;
   address: string;
   medicalHistory: string;
+  bloodGroup?: string;
   allergies: string;
   notes?: string;
+  createdAt?: string;
 };
 
 export type RxItem = {
@@ -86,6 +89,7 @@ export type Clinic = {
   subscriptionEndDate?: string;
   subscriptionStartDate?: string;
   trialStartDate?: string;
+  createdAt?: string;
 };
 
 export type UserData = {
@@ -125,6 +129,42 @@ export type SupportTicket = {
   status: 'open' | 'in_progress' | 'resolved';
   createdAt: string;
   updatedAt: string;
+};
+
+export type BroadcastNotification = {
+  id: string;
+  title: string;
+  message: string;
+  targetGroup: 'all' | 'active' | 'trial' | 'expiring' | 'expired';
+  sentAt: string;
+  sentBy: string;
+  recipientCount: number;
+};
+
+export type PaymentRecord = {
+  id: string;
+  clinicId: string;
+  clinicName: string;
+  email: string;
+  amount: number;
+  paymentMethod: 'upi' | 'cash' | 'bank_transfer' | 'other';
+  transactionId?: string;
+  planName: string;
+  paidAt: string;
+  recordedBy: string;
+  notes?: string;
+  cycle?: 'monthly' | 'yearly';
+};
+
+export type InAppNotification = {
+  id: string;
+  broadcastId: string;
+  title: string;
+  message: string;
+  sentAt: string;
+  sentBy: string;
+  isRead: boolean;
+  readAt?: string;
 };
 
 export type FollowUpType = 'post_treatment' | 'routine_checkup' | 'missed_appointment';

@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '@/store';
 import { IndianRupee, FileDown, Plus, X, Receipt, Trash2, Edit3, Search, SlidersHorizontal, ArrowDown, ArrowUp, ChevronDown, UserPlus, MessageCircle } from 'lucide-react';
-import { Invoice, InvoiceItem } from '@/types';
+import { Invoice, InvoiceItem, Patient } from '@/types';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import QRCode from 'qrcode';
@@ -72,16 +72,17 @@ export default function BillingPage() {
     const name = billingNewName.trim() || manualPatientSearch.trim();
     if (!name) return;
     const newId = 'p' + Date.now() + Math.random().toString(36).slice(2, 6);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const newPatient: any = {
+    const newPatient: Patient = {
       id: newId,
       name,
       phone: billingNewPhone.trim(),
       email: '',
-      address: '',
+      dob: '',
       gender: 'Other',
-      age: '',
+      address: '',
       medicalHistory: '',
+      allergies: '',
+      age: '',
       bloodGroup: '',
       createdAt: new Date().toISOString()
     };

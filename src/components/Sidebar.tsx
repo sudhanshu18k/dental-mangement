@@ -130,20 +130,22 @@ export default function Sidebar() {
             </Link>
           );
         })}
-        {/* SUPER ADMIN */}
+        {/* SUPER ADMIN CONTROL CENTER */}
         {isSuperAdmin && (
           <Link
             href="/admin"
             className={`nav-link ${pathname === '/admin' ? 'active' : ''}`}
             style={{ 
-              marginTop: '1rem', 
-              color: 'var(--danger)', 
-              background: pathname === '/admin' ? 'var(--danger-bg)' : 'transparent',
-              border: '1px solid var(--danger-bg)' 
+              marginTop: '1.5rem', 
+              color: pathname === '/admin' ? '#ffffff' : '#f43f5e', 
+              background: pathname === '/admin' ? 'linear-gradient(135deg, #f43f5e, #e11d48)' : 'rgba(244, 63, 94, 0.05)',
+              border: pathname === '/admin' ? 'none' : '1px solid rgba(244, 63, 94, 0.15)',
+              boxShadow: pathname === '/admin' ? '0 8px 16px rgba(225, 29, 72, 0.2)' : 'none',
+              padding: '0.9rem 1.25rem'
             }}
           >
-            <Shield size={20} strokeWidth={2.5} />
-            <span className="nav-label" style={{ fontWeight: 800, textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '1px' }}>Super Admin</span>
+            <Shield size={20} strokeWidth={pathname === '/admin' ? 2.5 : 2} />
+            <span className="nav-label" style={{ fontWeight: 800 }}>Admin Center</span>
           </Link>
         )}
       </nav>

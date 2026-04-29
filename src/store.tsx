@@ -50,6 +50,70 @@ function calcDaysLeft(endDateStr?: string): number | null {
   return diff;
 }
 
+// ── Smart Treatment → Follow-Up Interval Map ──
+const TREATMENT_FOLLOWUP_MAP: Record<string, { type: FollowUp['type']; daysAfter: number; label: string }[]> = {
+  // Surgical / Invasive
+  'root canal':       [{ type: 'post_treatment', daysAfter: 7, label: 'Post Root Canal Check' }],
+  'extraction':       [{ type: 'post_treatment', daysAfter: 1, label: 'Post Extraction Check' }, { type: 'post_treatment', daysAfter: 7, label: '1-Week Healing Check' }],
+  'surgery':          [{ type: 'post_treatment', daysAfter: 1, label: 'Post Surgery Check' }, { type: 'post_treatment', daysAfter: 14, label: '2-Week Healing Review' }],
+  'implant':          [{ type: 'post_treatment', daysAfter: 7, label: 'Post Implant Check' }, { type: 'post_treatment', daysAfter: 90, label: '3-Month Implant Review' }],
+  'wisdom tooth':     [{ type: 'post_treatment', daysAfter: 2, label: 'Post Wisdom Tooth Extraction' }, { type: 'post_treatment', daysAfter: 7, label: '1-Week Healing Check' }],
+
+  // Restorative
+  'filling':          [{ type: 'post_treatment', daysAfter: 14, label: 'Post Filling Sensitivity Check' }],
+  'crown':            [{ type: 'post_treatment', daysAfter: 7, label: 'Crown Fit Check' }, { type: 'routine_checkup', daysAfter: 180, label: '6-Month Crown Review' }],
+  'bridge':           [{ type: 'post_treatment', daysAfter: 7, label: 'Bridge Fit Check' }, { type: 'routine_checkup', daysAfter: 180, label: '6-Month Bridge Review' }],
+  'veneer':           [{ type: 'post_treatment', daysAfter: 7, label: 'Veneer Check' }],
+  'denture':          [{ type: 'post_treatment', daysAfter: 3, label: 'Denture Adjustment' }, { type: 'post_treatment', daysAfter: 14, label: '2-Week Denture Review' }],
+  'inlay':            [{ type: 'post_treatment', daysAfter: 14, label: 'Inlay/Onlay Check' }],
+  'onlay':            [{ type: 'post_treatment', daysAfter: 14, label: 'Inlay/Onlay Check' }],
+
+  // Orthodontics
+  'braces':           [{ type: 'post_treatment', daysAfter: 30, label: 'Monthly Braces Adjustment' }],
+  'orthodontic':      [{ type: 'post_treatment', daysAfter: 30, label: 'Monthly Orthodontic Check' }],
+  'aligner':          [{ type: 'post_treatment', daysAfter: 14, label: 'Aligner Progress Check' }],
+  'retainer':         [{ type: 'post_treatment', daysAfter: 90, label: '3-Month Retainer Check' }],
+
+  // Periodontal
+  'scaling':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
+  'cleaning':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
+  'polishing':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
+  'deep cleaning':    [{ type: 'post_treatment', daysAfter: 30, label: '1-Month Perio Re-evaluation' }, { type: 'routine_checkup', daysAfter: 90, label: '3-Month Perio Maintenance' }],
+  'gum treatment':    [{ type: 'post_treatment', daysAfter: 14, label: '2-Week Gum Check' }, { type: 'routine_checkup', daysAfter: 90, label: '3-Month Perio Review' }],
+  'gum surgery':      [{ type: 'post_treatment', daysAfter: 7, label: 'Post Gum Surgery Check' }],
+
+  // Cosmetic
+  'whitening':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Whitening Touch-up' }],
+  'bleaching':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Bleaching Review' }],
+  'bonding':          [{ type: 'post_treatment', daysAfter: 14, label: 'Bonding Check' }],
+
+  // Pediatric
+  'sealant':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Sealant Check' }],
+  'fluoride':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Fluoride Application' }],
+  'space maintainer': [{ type: 'post_treatment', daysAfter: 30, label: 'Space Maintainer Check' }],
+
+  // General
+  'consultation':     [{ type: 'routine_checkup', daysAfter: 7, label: 'Follow-up Consultation' }],
+  'checkup':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
+  'check-up':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
+  'routine':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
+  'x-ray':            [],
+  'xray':             [],
+};
+
+// Helper: match treatment to follow-up rules
+const getFollowUpRules = (treatmentType: string) => {
+  const lower = treatmentType.toLowerCase().trim();
+  // Try exact match first
+  if (TREATMENT_FOLLOWUP_MAP[lower]) return TREATMENT_FOLLOWUP_MAP[lower];
+  // Try partial match
+  for (const [key, rules] of Object.entries(TREATMENT_FOLLOWUP_MAP)) {
+    if (lower.includes(key) || key.includes(lower)) return rules;
+  }
+  // Fallback: generic post-treatment at 7 days
+  return [{ type: 'post_treatment' as const, daysAfter: 7, label: 'Post Treatment Follow-up' }];
+};
+
 export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { userId } = useAuth();
   const { user } = useUser();
@@ -415,71 +479,6 @@ export const StoreProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     if (isReadOnly) { showReadOnlyToast(); return; }
     deleteDoc(doc(db, 'clinics', activeClinicId, 'followUpTemplates', id));
   }, [activeClinicId, isReadOnly, showReadOnlyToast]);
-
-  // ── Smart Treatment → Follow-Up Interval Map ──
-  // Each treatment type maps to an array of follow-ups with specific intervals
-  const TREATMENT_FOLLOWUP_MAP: Record<string, { type: FollowUp['type']; daysAfter: number; label: string }[]> = {
-    // Surgical / Invasive
-    'root canal':       [{ type: 'post_treatment', daysAfter: 7, label: 'Post Root Canal Check' }],
-    'extraction':       [{ type: 'post_treatment', daysAfter: 1, label: 'Post Extraction Check' }, { type: 'post_treatment', daysAfter: 7, label: '1-Week Healing Check' }],
-    'surgery':          [{ type: 'post_treatment', daysAfter: 1, label: 'Post Surgery Check' }, { type: 'post_treatment', daysAfter: 14, label: '2-Week Healing Review' }],
-    'implant':          [{ type: 'post_treatment', daysAfter: 7, label: 'Post Implant Check' }, { type: 'post_treatment', daysAfter: 90, label: '3-Month Implant Review' }],
-    'wisdom tooth':     [{ type: 'post_treatment', daysAfter: 2, label: 'Post Wisdom Tooth Extraction' }, { type: 'post_treatment', daysAfter: 7, label: '1-Week Healing Check' }],
-
-    // Restorative
-    'filling':          [{ type: 'post_treatment', daysAfter: 14, label: 'Post Filling Sensitivity Check' }],
-    'crown':            [{ type: 'post_treatment', daysAfter: 7, label: 'Crown Fit Check' }, { type: 'routine_checkup', daysAfter: 180, label: '6-Month Crown Review' }],
-    'bridge':           [{ type: 'post_treatment', daysAfter: 7, label: 'Bridge Fit Check' }, { type: 'routine_checkup', daysAfter: 180, label: '6-Month Bridge Review' }],
-    'veneer':           [{ type: 'post_treatment', daysAfter: 7, label: 'Veneer Check' }],
-    'denture':          [{ type: 'post_treatment', daysAfter: 3, label: 'Denture Adjustment' }, { type: 'post_treatment', daysAfter: 14, label: '2-Week Denture Review' }],
-    'inlay':            [{ type: 'post_treatment', daysAfter: 14, label: 'Inlay/Onlay Check' }],
-    'onlay':            [{ type: 'post_treatment', daysAfter: 14, label: 'Inlay/Onlay Check' }],
-
-    // Orthodontics
-    'braces':           [{ type: 'post_treatment', daysAfter: 30, label: 'Monthly Braces Adjustment' }],
-    'orthodontic':      [{ type: 'post_treatment', daysAfter: 30, label: 'Monthly Orthodontic Check' }],
-    'aligner':          [{ type: 'post_treatment', daysAfter: 14, label: 'Aligner Progress Check' }],
-    'retainer':         [{ type: 'post_treatment', daysAfter: 90, label: '3-Month Retainer Check' }],
-
-    // Periodontal
-    'scaling':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
-    'cleaning':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
-    'polishing':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Cleaning Recall' }],
-    'deep cleaning':    [{ type: 'post_treatment', daysAfter: 30, label: '1-Month Perio Re-evaluation' }, { type: 'routine_checkup', daysAfter: 90, label: '3-Month Perio Maintenance' }],
-    'gum treatment':    [{ type: 'post_treatment', daysAfter: 14, label: '2-Week Gum Check' }, { type: 'routine_checkup', daysAfter: 90, label: '3-Month Perio Review' }],
-    'gum surgery':      [{ type: 'post_treatment', daysAfter: 7, label: 'Post Gum Surgery Check' }],
-
-    // Cosmetic
-    'whitening':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Whitening Touch-up' }],
-    'bleaching':        [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Bleaching Review' }],
-    'bonding':          [{ type: 'post_treatment', daysAfter: 14, label: 'Bonding Check' }],
-
-    // Pediatric
-    'sealant':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Sealant Check' }],
-    'fluoride':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Fluoride Application' }],
-    'space maintainer': [{ type: 'post_treatment', daysAfter: 30, label: 'Space Maintainer Check' }],
-
-    // General
-    'consultation':     [{ type: 'routine_checkup', daysAfter: 7, label: 'Follow-up Consultation' }],
-    'checkup':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
-    'check-up':         [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
-    'routine':          [{ type: 'routine_checkup', daysAfter: 180, label: '6-Month Routine Checkup' }],
-    'x-ray':            [],
-    'xray':             [],
-  };
-
-  // Helper: match treatment to follow-up rules
-  const getFollowUpRules = (treatmentType: string) => {
-    const lower = treatmentType.toLowerCase().trim();
-    // Try exact match first
-    if (TREATMENT_FOLLOWUP_MAP[lower]) return TREATMENT_FOLLOWUP_MAP[lower];
-    // Try partial match
-    for (const [key, rules] of Object.entries(TREATMENT_FOLLOWUP_MAP)) {
-      if (lower.includes(key) || key.includes(lower)) return rules;
-    }
-    // Fallback: generic post-treatment at 7 days
-    return [{ type: 'post_treatment' as const, daysAfter: 7, label: 'Post Treatment Follow-up' }];
-  };
 
   // ── Auto-generate follow-ups for a completed/cancelled appointment ──
   const generateFollowUpsForAppointment = useCallback(async (appt: Appointment) => {

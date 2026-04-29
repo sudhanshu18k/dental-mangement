@@ -5,7 +5,7 @@ import { useStore } from '@/store';
 import {
   Bell, CheckCircle, XCircle, MessageCircle, Clock, AlertTriangle,
   CalendarCheck, Stethoscope, Phone, Plus, X, Edit2, Trash2,
-  Send, Filter, FileText, ChevronDown, RefreshCw, Eye
+  Send, Filter, FileText, RefreshCw, Eye, Zap
 } from 'lucide-react';
 import { FollowUp, FollowUpTemplate, FollowUpType, FollowUpStatus } from '@/types';
 
@@ -81,9 +81,9 @@ export default function FollowUpsPage() {
 
     if (!template || !patient) return '';
 
-    let clinicName = activeClinic?.name || 'Our Clinic';
+    const clinicName = activeClinic?.name || 'Our Clinic';
 
-    let msg = template.message
+    const msg = template.message
       .replace(/\{\{patientName\}\}/g, patient.name)
       .replace(/\{\{clinicName\}\}/g, clinicName)
       .replace(/\{\{treatmentType\}\}/g, followUp.treatmentType || appt?.treatmentType || 'your treatment')
@@ -250,17 +250,17 @@ export default function FollowUpsPage() {
       {/* Follow-up List */}
       <div className="followup-list">
         {filtered.length === 0 ? (
-          <div className="followup-empty">
-            <Bell size={48} strokeWidth={1} />
-            <p>No follow-ups match your filters</p>
-            <button className="btn btn-primary btn-sm" onClick={generateAll}>
-              <RefreshCw size={14} /> Generate Follow-ups
+          <div className="followup-empty card" style={{ textAlign: 'center', padding: '4rem 2rem' }}>
+            <Bell size={64} strokeWidth={1} style={{ color: 'var(--primary)', opacity: 0.2, marginBottom: '1.5rem' }} />
+            <h3 style={{ marginBottom: '0.5rem' }}>All Caught Up!</h3>
+            <p style={{ color: 'var(--on-surface-variant)', marginBottom: '2rem' }}>No follow-ups match your current filters.</p>
+            <button className="btn btn-primary" onClick={generateAll}>
+              <RefreshCw size={16} /> Generate Follow-ups
             </button>
           </div>
         ) : (
           filtered.map(fu => {
             const patient = getPatient(fu.patientId);
-            const appt = getAppointment(fu.appointmentId);
             const tc = typeConfig[fu.type];
             const sc = statusConfig[fu.status];
             const isOverdue = fu.dueDate < today && fu.status === 'pending';
@@ -269,60 +269,56 @@ export default function FollowUpsPage() {
             return (
               <div key={fu.id} className={`followup-card ${isOverdue ? 'followup-card-overdue' : ''}`}>
                 <div className="followup-card-left">
-                  <div className="followup-type-badge" style={{ background: tc.bg, color: tc.color }}>
-                    <TypeIcon size={14} />
-                    {tc.label}
-                  </div>
-
-                  {/* Smart label from auto-generation */}
-                  {fu.notes && (
-                    <div style={{
-                      fontSize: '0.72rem',
-                      fontWeight: 600,
-                      color: 'var(--on-surface-variant)',
-                      padding: '0.2rem 0.5rem',
-                      background: 'var(--surface-container-low, #f8fafc)',
-                      borderRadius: '0.4rem',
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '0.3rem',
-                      marginBottom: '0.25rem',
-                    }}>
-                      💡 {fu.notes}
+                  <div className="followup-patient-header">
+                    <div className="followup-type-badge" style={{ background: tc.bg, color: tc.color }}>
+                      <TypeIcon size={14} />
+                      {tc.label}
                     </div>
-                  )}
-
-                  <div className="followup-patient-info">
                     <div className="followup-patient-name">{patient?.name || 'Unknown Patient'}</div>
-                    <div className="followup-patient-phone">{patient?.phone || 'No phone'}</div>
+                    
+                    {fu.notes && (
+                      <div style={{
+                        fontSize: '0.72rem',
+                        fontWeight: 700,
+                        color: 'var(--primary)',
+                        padding: '0.25rem 0.6rem',
+                        background: 'var(--info-bg)',
+                        borderRadius: '0.5rem',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                      }}>
+                        <Zap size={10} fill="currentColor" /> {fu.notes}
+                      </div>
+                    )}
                   </div>
 
                   <div className="followup-meta">
+                    <div className="followup-meta-item">
+                      <Phone size={14} /> {patient?.phone || 'No phone'}
+                    </div>
                     {fu.treatmentType && (
-                      <span className="followup-treatment">🦷 {fu.treatmentType}</span>
+                      <div className="followup-meta-item">
+                        <Stethoscope size={14} /> {fu.treatmentType}
+                      </div>
                     )}
-                    <span className={`followup-due ${isOverdue ? 'overdue' : ''}`}>
-                      📅 {new Date(fu.dueDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    <div className={`followup-meta-item followup-due ${isOverdue ? 'overdue' : ''}`}>
+                      <Clock size={14} /> 
+                      {new Date(fu.dueDate + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                       {isOverdue && <span className="overdue-badge">OVERDUE</span>}
-                    </span>
+                    </div>
                   </div>
                 </div>
 
                 <div className="followup-card-right">
-                  {/* Status badge */}
-                  <span className="followup-status-badge" style={{ background: sc.bg, color: sc.color }}>
-                    {sc.label}
-                  </span>
-
                   {fu.status === 'pending' && (
                     <>
-                      {/* Template selector */}
                       <select
                         className="followup-template-select"
                         value={selectedTemplate[fu.id] || ''}
                         onChange={e => setSelectedTemplate(prev => ({ ...prev, [fu.id]: e.target.value }))}
                       >
-                        <option value="">Pick template...</option>
+                        <option value="">Choose template...</option>
                         {followUpTemplates.filter(t => t.type === fu.type).map(t => (
                           <option key={t.id} value={t.id}>{t.name}</option>
                         ))}
@@ -332,54 +328,54 @@ export default function FollowUpsPage() {
                         ))}
                       </select>
 
-                      {/* Preview */}
                       <button
                         className="followup-action-btn followup-preview-btn"
                         onClick={() => previewMessage(fu)}
-                        title="Preview message"
+                        title="Preview Message"
                       >
-                        <Eye size={15} />
+                        <Eye size={18} />
                       </button>
 
-                      {/* WhatsApp */}
                       <button
                         className="followup-action-btn followup-whatsapp-btn"
                         onClick={() => sendWhatsApp(fu)}
-                        title="Send via WhatsApp"
                       >
-                        <MessageCircle size={15} />
-                        <span>WhatsApp</span>
+                        <MessageCircle size={18} />
+                        <span>Send WhatsApp</span>
                       </button>
 
-                      {/* Mark sent */}
                       <button
                         className="followup-action-btn followup-sent-btn"
                         onClick={() => markSent(fu.id)}
-                        title="Mark as sent"
+                        title="Mark as Sent"
                       >
-                        <CheckCircle size={15} />
+                        <CheckCircle size={18} />
                       </button>
 
-                      {/* Dismiss */}
                       <button
                         className="followup-action-btn followup-dismiss-btn"
                         onClick={() => dismiss(fu.id)}
                         title="Dismiss"
                       >
-                        <XCircle size={15} />
+                        <XCircle size={18} />
                       </button>
                     </>
                   )}
 
                   {fu.status !== 'pending' && (
-                    <button
-                      className="followup-action-btn"
-                      onClick={() => deleteFollowUp(fu.id)}
-                      title="Delete"
-                      style={{ color: '#ef4444' }}
-                    >
-                      <Trash2 size={15} />
-                    </button>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                      <span className="followup-status-badge" style={{ background: sc.bg, color: sc.color }}>
+                        {sc.label}
+                      </span>
+                      <button
+                        className="followup-action-btn"
+                        onClick={() => deleteFollowUp(fu.id)}
+                        title="Delete"
+                        style={{ color: '#ef4444', border: 'none', background: 'transparent' }}
+                      >
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
