@@ -5,7 +5,7 @@ import { useStore } from '@/store';
 import { collection, getDocs, doc, deleteDoc, getCountFromServer, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useRouter } from 'next/navigation';
-import { UserData, Clinic, SubscriptionPlan, SubscriptionHistoryEntry, SupportTicket } from '@/types';
+import { UserData, Clinic, SubscriptionPlan, SubscriptionHistoryEntry, SupportTicket, BroadcastNotification, PaymentRecord } from '@/types';
 import { 
   Shield, 
   Loader2, 
@@ -29,7 +29,8 @@ import {
   Zap,
   Eye,
   Search,
-  MessageCircle
+  MessageCircle,
+  Phone
 } from 'lucide-react';
 
 type AdminStats = {
@@ -66,9 +67,12 @@ export default function AdminPage() {
   const [planDuration, setPlanDuration] = useState('30');
 
   // Assign plan modal state
-  const [assignModal, setAssignModal] = useState<{ userId: string; clinicId: string; email: string } | null>(null);
+  const [assignModal, setAssignModal] = useState<{ userId: string; clinicId: string; email: string; name?: string } | null>(null);
   const [assignPlanId, setAssignPlanId] = useState('');
   const [assignCycle, setAssignCycle] = useState<'monthly' | 'yearly'>('monthly');
+  const [assignPaymentAmount, setAssignPaymentAmount] = useState('');
+  const [assignUpiRef, setAssignUpiRef] = useState('');
+  const [assignPaymentDate, setAssignPaymentDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [savingAssign, setSavingAssign] = useState(false);
 
   // History state
@@ -86,6 +90,22 @@ export default function AdminPage() {
   // Support Tickets state
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  // Broadcasts state
+  const [broadcastAudience, setBroadcastAudience] = useState('All');
+  const [broadcastTitle, setBroadcastTitle] = useState('');
+  const [broadcastMessage, setBroadcastMessage] = useState('');
+  const [sendingBroadcast, setSendingBroadcast] = useState(false);
+  const [broadcastHistory, setBroadcastHistory] = useState<BroadcastNotification[]>([]);
+
+  // Payments state
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+
+  // Calendar state (Current month starts at 01)
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
 
   useEffect(() => {
     if (isLoading) return;
@@ -136,6 +156,81 @@ export default function AdminPage() {
     });
     return () => unsub();
   }, []);
+
+  // Realtime broadcasts
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'broadcastNotifications'), (snap) => {
+      const bs: BroadcastNotification[] = snap.docs.map(d => ({ ...(d.data() as BroadcastNotification), id: d.id }));
+      setBroadcastHistory(bs.sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime()));
+    });
+    return () => unsub();
+  }, []);
+
+  // Realtime payments
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'subscriptionPayments'), (snap) => {
+      const ps: PaymentRecord[] = snap.docs.map(d => ({ ...(d.data() as PaymentRecord), id: d.id }));
+      setPayments(ps.sort((a, b) => new Date(b.paidAt).getTime() - new Date(a.paidAt).getTime()));
+    });
+    return () => unsub();
+  }, []);
+
+  // Send Broadcast Notification
+  const handleSendBroadcast = async () => {
+    if (!broadcastTitle.trim() || !broadcastMessage.trim()) return;
+    setSendingBroadcast(true);
+
+    try {
+      let targets = stats;
+      if (broadcastAudience !== 'All') {
+        targets = stats.filter(s => {
+          if (broadcastAudience === 'Active') return s.subStatus === 'active';
+          if (broadcastAudience === 'Trial') return s.subStatus === 'trial';
+          if (broadcastAudience === 'Expired') return s.subStatus === 'expired';
+          if (broadcastAudience === 'Expiring') {
+            if (!s.subEndDate || s.subEndDate === '-') return false;
+            const days = Math.ceil((new Date(s.subEndDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+            return days >= 0 && days <= 7;
+          }
+          return false;
+        });
+      }
+
+      const broadcastRef = doc(collection(db, 'broadcastNotifications'));
+      const broadcastData: BroadcastNotification = {
+        id: broadcastRef.id,
+        title: broadcastTitle.trim(),
+        message: broadcastMessage.trim(),
+        targetGroup: broadcastAudience.toLowerCase() as BroadcastNotification['targetGroup'],
+        sentAt: new Date().toISOString(),
+        sentBy: userData?.email || 'admin',
+        recipientCount: targets.length
+      };
+      await setDoc(broadcastRef, broadcastData);
+
+      const pushPromises = targets.map(target => {
+        const notifRef = doc(collection(db, 'clinics', target.clinicId, 'notifications'));
+        return setDoc(notifRef, {
+          id: notifRef.id,
+          broadcastId: broadcastRef.id,
+          title: broadcastData.title,
+          message: broadcastData.message,
+          sentAt: broadcastData.sentAt,
+          sentBy: broadcastData.sentBy,
+          isRead: false
+        });
+      });
+      await Promise.all(pushPromises);
+
+      setBroadcastTitle('');
+      setBroadcastMessage('');
+      alert('Broadcast sent successfully to ' + targets.length + ' clinics.');
+    } catch (e) {
+      console.error(e);
+      alert('Failed to send broadcast');
+    }
+    setSendingBroadcast(false);
+  };
 
   // Save platform settings
   const handleSavePlatformSettings = async () => {
@@ -392,12 +487,15 @@ export default function AdminPage() {
 
   // ─── Assign Plan to User ───
   const openAssignModal = (stat: AdminStats) => {
-    setAssignModal({ userId: stat.userId, clinicId: stat.clinicId, email: stat.email });
+    setAssignModal({ userId: stat.userId, clinicId: stat.clinicId, email: stat.email, name: stat.name || stat.clinicName });
     const activePlans = plans.filter(p => p.isActive);
     const currentPlan = plans.find(p => p.id === stat.subPlanId);
     const defaultId = (currentPlan && currentPlan.isActive) ? stat.subPlanId : (activePlans.length > 0 ? activePlans[0].id : '');
     setAssignPlanId(defaultId);
     setAssignCycle('monthly');
+    setAssignPaymentAmount(currentPlan ? String(currentPlan.monthlyPrice) : '');
+    setAssignUpiRef('');
+    setAssignPaymentDate(new Date().toISOString().split('T')[0]);
   };
 
   const handleAssignPlan = useCallback(async () => {
@@ -425,6 +523,24 @@ export default function AdminPage() {
         subscriptionStartDate: now.toISOString(),
         subscriptionEndDate: endDate.toISOString(),
       });
+
+      // Log payment record if amount is provided
+      if (assignPaymentAmount && Number(assignPaymentAmount) > 0) {
+        const paymentRef = doc(collection(db, 'subscriptionPayments'));
+        await setDoc(paymentRef, {
+          id: paymentRef.id,
+          clinicId: assignModal.clinicId,
+          clinicName: assignModal.name || assignModal.email,
+          email: assignModal.email,
+          amount: Number(assignPaymentAmount),
+          paymentMethod: assignUpiRef ? 'upi' : 'cash',
+          transactionId: assignUpiRef || '',
+          planName: `${plan.name} (${assignCycle === 'monthly' ? 'Monthly' : 'Yearly'})`,
+          paidAt: new Date(assignPaymentDate).toISOString(),
+          recordedBy: userData?.email || 'admin',
+          cycle: assignCycle
+        });
+      }
 
       await logHistory({
         clinicId: assignModal.clinicId,
@@ -532,7 +648,8 @@ export default function AdminPage() {
 
       {/* Tab Navigation - Pill Style */}
       <div style={{ 
-        display: 'inline-flex', 
+        display: 'flex',
+        flexWrap: 'wrap', 
         padding: '0.4rem', 
         background: 'rgba(0,0,0,0.03)', 
         borderRadius: '1.25rem', 
@@ -541,6 +658,9 @@ export default function AdminPage() {
       }}>
         <TabItem icon={<Users size={18} />} label={`Users (${stats.length})`} active={activeTab === 'users'} onClick={() => setActiveTab('users')} />
         <TabItem icon={<AlertTriangle size={18} />} label="Expiring Soon" active={activeTab === 'expiring'} onClick={() => setActiveTab('expiring')} />
+        <TabItem icon={<CalendarDays size={18} />} label="Calendar" active={activeTab === 'calendar'} onClick={() => setActiveTab('calendar')} />
+        <TabItem icon={<MessageCircle size={18} />} label="Broadcasts" active={activeTab === 'broadcasts'} onClick={() => setActiveTab('broadcasts')} />
+        <TabItem icon={<CreditCard size={18} />} label="Payments" active={activeTab === 'payments'} onClick={() => setActiveTab('payments')} />
         <TabItem icon={<List size={18} />} label="Subscription Plans" active={activeTab === 'plans'} onClick={() => setActiveTab('plans')} />
         <TabItem icon={<History size={18} />} label="History" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
         <TabItem icon={<Headset size={18} />} label="Support" active={activeTab === 'support'} onClick={() => setActiveTab('support')} />
@@ -681,7 +801,7 @@ export default function AdminPage() {
                             >
                               {stat.isLocked ? <Unlock size={17} /> : <Lock size={17} />}
                             </button>
-                            {(stat.subStatus === 'active' || stat.subStatus === 'trial') && (
+                            {(stat.subStatus === 'active' || stat.subStatus === 'trial' || stat.subStatus === 'manual') && (
                               <button
                                 onClick={() => handleDeactivatePlan(stat.clinicId)}
                                 style={{ background: '#fee2e2', color: '#dc2626', border: 'none', padding: '0.35rem 0.65rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.25rem', transition: 'all 0.2s' }}
@@ -781,50 +901,67 @@ export default function AdminPage() {
           TAB: SUBSCRIPTION PLANS
          ═══════════════════════════════════ */}
       {activeTab === 'plans' && (
-        <div>
+        <div className="animate-slide-up" style={{ animation: 'fadeIn 0.5s ease' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '2rem' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(236,72,153,0.1), rgba(225,29,72,0.1))', color: '#e11d48', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Crown size={28} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>Subscription Plans</h2>
+              <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.9rem', margin: '0.2rem 0 0 0' }}>Manage platform tiers and pricing options.</p>
+            </div>
+          </div>
+
           {/* Inline Create/Edit Form */}
-          <div className="card" style={{ padding: '1.5rem 2rem', marginBottom: '1.5rem', borderRadius: '1.25rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--on-surface)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              <Plus size={18} /> {editingPlan ? 'Edit Plan' : 'Create New Plan'}
+          <div style={{ background: '#ffffff', padding: '1.5rem 2rem', marginBottom: '2rem', borderRadius: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.03)' }}>
+            <h3 style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--primary)', marginBottom: '1.25rem', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              {editingPlan ? <><Edit3 size={16} /> Edit Plan Details</> : <><Plus size={16} /> Create New Plan</>}
             </h3>
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
-              <input
-                value={planName}
-                onChange={e => setPlanName(e.target.value)}
-                placeholder="Plan name (e.g. Monthly)"
-                style={{ flex: '1 1 200px', padding: '0.7rem 1rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-lowest)', fontSize: '0.88rem', color: 'var(--on-surface)', outline: 'none' }}
-              />
-              <input
-                value={planPrice}
-                onChange={e => setPlanPrice(e.target.value)}
-                placeholder="Price (₹)"
-                type="number"
-                style={{ flex: '0 1 140px', padding: '0.7rem 1rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-lowest)', fontSize: '0.88rem', color: 'var(--on-surface)', outline: 'none' }}
-              />
-              <input
-                value={planDuration}
-                onChange={e => setPlanDuration(e.target.value)}
-                placeholder="Days"
-                type="number"
-                style={{ flex: '0 1 100px', padding: '0.7rem 1rem', borderRadius: 'var(--radius-full)', border: '1px solid var(--outline-variant)', background: 'var(--surface-container-lowest)', fontSize: '0.88rem', color: 'var(--on-surface)', outline: 'none' }}
-              />
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 250px', position: 'relative' }}>
+                <input
+                  value={planName}
+                  onChange={e => setPlanName(e.target.value)}
+                  placeholder="Plan Name (e.g. Premium)"
+                  style={{ width: '100%', padding: '1rem 1.5rem', borderRadius: '1rem', border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.95rem', fontWeight: 600, color: 'var(--on-surface)', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}
+                />
+              </div>
+              <div style={{ flex: '0 1 180px', position: 'relative' }}>
+                <div style={{ position: 'absolute', left: '1.25rem', top: '50%', transform: 'translateY(-50%)', color: '#64748b', fontWeight: 700 }}>₹</div>
+                <input
+                  value={planPrice}
+                  onChange={e => setPlanPrice(e.target.value)}
+                  placeholder="0"
+                  type="number"
+                  style={{ width: '100%', padding: '1rem 1.5rem 1rem 2.5rem', borderRadius: '1rem', border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.95rem', fontWeight: 600, color: 'var(--on-surface)', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}
+                />
+              </div>
+              <div style={{ flex: '0 1 150px', position: 'relative' }}>
+                <input
+                  value={planDuration}
+                  onChange={e => setPlanDuration(e.target.value)}
+                  placeholder="Days"
+                  type="number"
+                  style={{ width: '100%', padding: '1rem 1.5rem', borderRadius: '1rem', border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.95rem', fontWeight: 600, color: 'var(--on-surface)', outline: 'none', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}
+                />
+              </div>
               <button
                 onClick={handleCreateOrUpdatePlan}
                 disabled={!planName.trim() || !planPrice}
                 style={{
-                  padding: '0.7rem 1.75rem', borderRadius: 'var(--radius-full)', border: 'none',
-                  background: editingPlan ? '#3b82f6' : 'linear-gradient(135deg, var(--primary), var(--primary-container))',
-                  color: '#fff', fontSize: '0.88rem', fontWeight: 700, cursor: 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '0.4rem', opacity: (!planName.trim() || !planPrice) ? 0.5 : 1,
-                  transition: 'all 0.2s', whiteSpace: 'nowrap'
+                  padding: '1rem 2rem', borderRadius: '1rem', border: 'none',
+                  background: editingPlan ? 'var(--primary)' : '#e11d48',
+                  color: '#fff', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', gap: '0.5rem', opacity: (!planName.trim() || !planPrice) ? 0.5 : 1,
+                  transition: 'all 0.2s', boxShadow: editingPlan ? '0 8px 20px rgba(0,97,163,0.2)' : '0 8px 20px rgba(225,29,72,0.2)'
                 }}
               >
-                <Plus size={16} strokeWidth={3} /> {editingPlan ? 'Update' : 'Create'}
+                {editingPlan ? <><CheckCircle size={18} /> Update Plan</> : <><Plus size={18} strokeWidth={3} /> Create</>}
               </button>
               {editingPlan && (
                 <button
                   onClick={cancelEdit}
-                  style={{ padding: '0.7rem 1.25rem', borderRadius: 'var(--radius-full)', border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                  style={{ padding: '1rem 1.5rem', borderRadius: '1rem', border: 'none', background: '#f1f5f9', color: '#475569', fontSize: '0.95rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
                 >
                   Cancel
                 </button>
@@ -832,73 +969,54 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Plans Table */}
-          <div className="table-wrapper card" style={{ padding: 0, borderRadius: '1.25rem' }}>
-            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Name</th>
-                  <th style={thStyle}>Price</th>
-                  <th style={thStyle}>Duration</th>
-                  <th style={thStyle}>Status</th>
-                  <th style={{ ...thStyle, textAlign: 'center' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {plans.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontWeight: 500 }}>
-                      No plans created yet. Use the form above to create one.
-                    </td>
-                  </tr>
-                ) : (
-                  plans.map(plan => {
-                    const dur = plan.duration || 30;
-                    return (
-                      <tr key={plan.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ ...tdStyle, fontWeight: 700, color: 'var(--on-surface)' }}>{plan.name}</td>
-                        <td style={tdStyle}>₹{plan.monthlyPrice.toLocaleString()}</td>
-                        <td style={tdStyle}>{dur} days</td>
-                        <td style={tdStyle}>
-                          <span style={{
-                            background: plan.isActive ? '#d1fae5' : '#fee2e2',
-                            color: plan.isActive ? '#059669' : '#dc2626',
-                            padding: '0.2rem 0.65rem', borderRadius: '1rem',
-                            fontSize: '0.72rem', fontWeight: 700
-                          }}>
-                            {plan.isActive ? 'Active' : 'Inactive'}
-                          </span>
-                        </td>
-                        <td style={{ ...tdStyle, textAlign: 'center' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem' }}>
-                            <button
-                              onClick={() => handleTogglePlanActive(plan)}
-                              style={{ padding: '0.3rem 0.75rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', background: '#fff', color: plan.isActive ? '#dc2626' : '#059669', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s' }}
-                            >
-                              {plan.isActive ? 'Deactivate' : 'Activate'}
-                            </button>
-                            <button
-                              onClick={() => startEditPlan(plan)}
-                              style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', padding: '0.25rem', display: 'flex' }}
-                              title="Edit"
-                            >
-                              <Edit3 size={16} />
-                            </button>
-                            <button
-                              onClick={() => handleDeletePlan(plan.id)}
-                              style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: '0.25rem', display: 'flex' }}
-                              title="Delete"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+          {/* Plans List */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '1.5rem' }}>
+            {plans.length === 0 ? (
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '4rem', background: '#fff', borderRadius: '1.5rem', color: '#94a3b8' }}>
+                <Crown size={48} style={{ marginBottom: '1rem', opacity: 0.2 }} />
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--on-surface)' }}>No Plans Yet</h3>
+                <p>Create your first subscription plan above.</p>
+              </div>
+            ) : (
+              plans.map(plan => {
+                const dur = plan.duration || 30;
+                return (
+                  <div key={plan.id} style={{ background: '#ffffff', borderRadius: '1.5rem', padding: '2rem', boxShadow: '0 10px 30px rgba(0,0,0,0.02)', position: 'relative', overflow: 'hidden', border: plan.isActive ? '1px solid rgba(16,185,129,0.2)' : '1px solid rgba(0,0,0,0.05)' }}>
+                    {!plan.isActive && <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(255,255,255,0.6)', zIndex: 1, pointerEvents: 'none' }} />}
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                      <div>
+                        <span style={{ 
+                          display: 'inline-block', padding: '0.25rem 0.75rem', borderRadius: '2rem', fontSize: '0.7rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem',
+                          background: plan.isActive ? '#d1fae5' : '#fee2e2', color: plan.isActive ? '#059669' : '#dc2626'
+                        }}>
+                          {plan.isActive ? 'Active Plan' : 'Inactive'}
+                        </span>
+                        <h3 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, color: 'var(--on-surface)' }}>{plan.name}</h3>
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.25rem' }}>
+                        <button onClick={() => startEditPlan(plan)} style={{ background: '#f1f5f9', border: 'none', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', cursor: 'pointer', transition: 'all 0.2s', zIndex: 2 }} title="Edit"><Edit3 size={16} /></button>
+                        <button onClick={() => handleDeletePlan(plan.id)} style={{ background: '#fee2e2', border: 'none', width: '36px', height: '36px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', cursor: 'pointer', transition: 'all 0.2s', zIndex: 2 }} title="Delete"><Trash2 size={16} /></button>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.25rem', marginBottom: '1.5rem' }}>
+                      <span style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', lineHeight: 1 }}>₹{plan.monthlyPrice.toLocaleString()}</span>
+                      <span style={{ fontSize: '0.9rem', color: '#64748b', fontWeight: 600 }}>/ {dur} days</span>
+                    </div>
+
+                    <div style={{ paddingTop: '1.5rem', borderTop: '1px solid rgba(0,0,0,0.05)', display: 'flex', justifyContent: 'center', zIndex: 2, position: 'relative' }}>
+                      <button
+                        onClick={() => handleTogglePlanActive(plan)}
+                        style={{ width: '100%', padding: '0.85rem', borderRadius: '1rem', border: 'none', background: plan.isActive ? '#f1f5f9' : '#10b981', color: plan.isActive ? '#64748b' : '#fff', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+                      >
+                        {plan.isActive ? 'Deactivate Plan' : 'Activate Plan'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       )}
@@ -907,93 +1025,120 @@ export default function AdminPage() {
           TAB: HISTORY
          ═══════════════════════════════════ */}
       {activeTab === 'history' && (
-        <div>
-          {/* Filter bar */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
-            <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: 'var(--on-surface)', margin: 0, display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <History size={20} /> Subscription History
-            </h2>
+        <div className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', animation: 'fadeIn 0.5s ease' }}>
+          {/* Header & Filter */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(245,158,11,0.1), rgba(217,119,6,0.1))', color: '#d97706', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <History size={28} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Subscription History</h2>
+                <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.9rem', margin: '0.2rem 0 0 0' }}>Audit log of all billing and plan changes.</p>
+              </div>
+            </div>
             <div style={{ position: 'relative' }}>
-              <Search size={16} style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+              <Search size={18} style={{ position: 'absolute', left: '1.25rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
               <input
                 value={historyFilter}
                 onChange={e => setHistoryFilter(e.target.value)}
-                placeholder="Filter by email..."
-                style={{ paddingLeft: '2.25rem', padding: '0.6rem 1rem 0.6rem 2.25rem', borderRadius: 'var(--radius-full)', border: 'none', background: 'var(--surface-container-lowest)', fontSize: '0.85rem', color: 'var(--on-surface)', outline: 'none', width: '300px', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}
+                placeholder="Search by email..."
+                style={{ 
+                  padding: '1rem 1.5rem 1rem 3rem', borderRadius: '2rem', border: 'none', background: '#ffffff', 
+                  fontSize: '0.95rem', fontWeight: 600, color: 'var(--on-surface)', outline: 'none', width: '320px', 
+                  boxShadow: '0 4px 15px rgba(0,0,0,0.03)', transition: 'all 0.2s' 
+                }}
               />
             </div>
           </div>
 
-          <div className="table-wrapper card" style={{ padding: 0, borderRadius: '1.25rem' }}>
-            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-              <thead>
-                <tr>
-                  <th style={thStyle}>Date</th>
-                  <th style={thStyle}>Email</th>
-                  <th style={thStyle}>Action</th>
-                  <th style={thStyle}>Plan</th>
-                  <th style={thStyle}>Amount</th>
-                  <th style={thStyle}>Note</th>
-                  <th style={thStyle}>By</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(() => {
-                  const filtered = historyFilter.trim()
-                    ? history.filter(h => h.email.toLowerCase().includes(historyFilter.toLowerCase()))
-                    : history;
-                  if (filtered.length === 0) {
-                    return (
-                      <tr>
-                        <td colSpan={7} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8', fontWeight: 500 }}>
-                          {historyFilter ? 'No history found for this email.' : 'No subscription history yet.'}
-                        </td>
-                      </tr>
-                    );
-                  }
-                  return filtered.map(h => {
-                    const actionColors: Record<string, { bg: string; text: string }> = {
-                      plan_assigned: { bg: '#dbeafe', text: '#1d4ed8' },
-                      activated: { bg: '#d1fae5', text: '#059669' },
-                      deactivated: { bg: '#fee2e2', text: '#dc2626' },
-                      locked: { bg: '#fce7f3', text: '#be185d' },
-                      expired: { bg: '#fee2e2', text: '#b91c1c' },
-                      trial_started: { bg: '#fef3c7', text: '#d97706' },
-                      plan_created: { bg: '#e0e7ff', text: '#4338ca' },
-                      plan_deleted: { bg: '#fef2f2', text: '#991b1b' },
-                    };
-                    const ac = actionColors[h.action] || { bg: '#f1f5f9', text: '#64748b' };
-                    return (
-                      <tr key={h.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                        <td style={{ ...tdStyle, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>
-                          {new Date(h.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                          <div style={{ fontSize: '0.65rem', color: '#94a3b8', marginTop: '0.1rem' }}>
-                            {new Date(h.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
-                          </div>
-                        </td>
-                        <td style={{ ...tdStyle, fontWeight: 600, color: 'var(--on-surface)', fontSize: '0.85rem' }}>{h.email}</td>
-                        <td style={tdStyle}>
-                          <span style={{
-                            background: ac.bg, color: ac.text,
-                            padding: '0.15rem 0.6rem', borderRadius: '1rem',
-                            fontSize: '0.68rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em', whiteSpace: 'nowrap'
-                          }}>
-                            {h.action.replace(/_/g, ' ')}
-                          </span>
-                        </td>
-                        <td style={{ ...tdStyle, fontSize: '0.85rem' }}>{h.planName || '—'}</td>
-                        <td style={{ ...tdStyle, fontSize: '0.85rem', fontWeight: h.amount ? 700 : 400 }}>
-                          {h.amount ? `₹${h.amount.toLocaleString()}` : '—'}
-                          {h.cycle && <span style={{ fontSize: '0.65rem', color: '#94a3b8', marginLeft: '0.2rem' }}>/{h.cycle === 'monthly' ? 'mo' : 'yr'}</span>}
-                        </td>
-                        <td style={{ ...tdStyle, fontSize: '0.8rem', color: '#64748b', maxWidth: '220px' }}>{h.note || '—'}</td>
-                        <td style={{ ...tdStyle, fontSize: '0.75rem', color: '#94a3b8' }}>{h.performedBy?.split('@')[0] || 'system'}</td>
-                      </tr>
-                    );
-                  });
-                })()}
-              </tbody>
-            </table>
+          <div style={{ background: '#ffffff', borderRadius: '1.5rem', padding: 0, overflow: 'hidden', boxShadow: '0 10px 40px rgba(0,0,0,0.03)' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ borderCollapse: 'collapse', width: '100%', minWidth: '800px' }}>
+                <thead>
+                  <tr>
+                    <th style={{ padding: '1.5rem', background: '#f8fafc', color: '#64748b', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>Date & Time</th>
+                    <th style={{ padding: '1.5rem', background: '#f8fafc', color: '#64748b', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>Clinic Email</th>
+                    <th style={{ padding: '1.5rem', background: '#f8fafc', color: '#64748b', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>Action</th>
+                    <th style={{ padding: '1.5rem', background: '#f8fafc', color: '#64748b', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>Plan Details</th>
+                    <th style={{ padding: '1.5rem', background: '#f8fafc', color: '#64748b', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>Amount</th>
+                    <th style={{ padding: '1.5rem', background: '#f8fafc', color: '#64748b', fontSize: '0.8rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', borderBottom: '1px solid rgba(0,0,0,0.05)' }}>Performed By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(() => {
+                    const filtered = historyFilter.trim()
+                      ? history.filter(h => h.email.toLowerCase().includes(historyFilter.toLowerCase()))
+                      : history;
+                    if (filtered.length === 0) {
+                      return (
+                        <tr>
+                          <td colSpan={6} style={{ textAlign: 'center', padding: '5rem 2rem', color: '#94a3b8' }}>
+                            <History size={48} style={{ marginBottom: '1rem', opacity: 0.2 }} />
+                            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'var(--on-surface)' }}>No Records Found</h3>
+                            <p style={{ fontSize: '0.9rem', marginTop: '0.5rem' }}>{historyFilter ? 'Try a different search term.' : 'Your audit log is currently empty.'}</p>
+                          </td>
+                        </tr>
+                      );
+                    }
+                    return filtered.map((h, idx) => {
+                      const actionColors: Record<string, { bg: string; text: string }> = {
+                        plan_assigned: { bg: '#dbeafe', text: '#1d4ed8' },
+                        activated: { bg: '#d1fae5', text: '#059669' },
+                        deactivated: { bg: '#fee2e2', text: '#dc2626' },
+                        locked: { bg: '#fce7f3', text: '#be185d' },
+                        expired: { bg: '#fee2e2', text: '#b91c1c' },
+                        trial_started: { bg: '#fef3c7', text: '#d97706' },
+                        plan_created: { bg: '#e0e7ff', text: '#4338ca' },
+                        plan_deleted: { bg: '#fef2f2', text: '#991b1b' },
+                      };
+                      const ac = actionColors[h.action] || { bg: '#f1f5f9', text: '#64748b' };
+                      const isLast = idx === filtered.length - 1;
+                      
+                      return (
+                        <tr key={h.id} style={{ borderBottom: isLast ? 'none' : '1px solid rgba(0,0,0,0.03)', transition: 'background 0.2s', cursor: 'default' }} className="hover:bg-slate-50">
+                          <td style={{ padding: '1.25rem 1.5rem', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontWeight: 800, color: 'var(--on-surface)', fontSize: '0.9rem' }}>
+                              {new Date(h.timestamp).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600, marginTop: '0.2rem' }}>
+                              {new Date(h.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem', fontWeight: 700, color: 'var(--on-surface)', fontSize: '0.9rem' }}>
+                            {h.email}
+                            {h.note && <div style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 500, marginTop: '0.25rem', maxWidth: '200px', whiteSpace: 'normal', lineHeight: 1.4 }}>{h.note}</div>}
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem' }}>
+                            <span style={{
+                              background: ac.bg, color: ac.text,
+                              padding: '0.4rem 0.8rem', borderRadius: '2rem',
+                              fontSize: '0.75rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.02em', whiteSpace: 'nowrap'
+                            }}>
+                              {h.action.replace(/_/g, ' ')}
+                            </span>
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>
+                            {h.planName || '—'}
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem' }}>
+                            {h.amount ? (
+                              <div style={{ fontWeight: 800, color: 'var(--primary)', fontSize: '1rem' }}>
+                                ₹{h.amount.toLocaleString()}
+                                {h.cycle && <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontWeight: 600, marginLeft: '0.2rem' }}>/{h.cycle === 'monthly' ? 'mo' : 'yr'}</span>}
+                              </div>
+                            ) : <span style={{ color: '#cbd5e1', fontWeight: 600 }}>—</span>}
+                          </td>
+                          <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 600, color: '#94a3b8' }}>
+                            {h.performedBy?.split('@')[0] || 'System Automated'}
+                          </td>
+                        </tr>
+                      );
+                    });
+                  })()}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1002,207 +1147,209 @@ export default function AdminPage() {
           TAB: SUPPORT
          ═══════════════════════════════════ */}
       {activeTab === 'support' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+        <div className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '2rem', animation: 'fadeIn 0.5s ease' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', letterSpacing: '-0.02em' }}>Support Tickets</h2>
-              <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.88rem' }}>Manage and resolve issues reported by clinic owners.</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(139,92,246,0.1), rgba(99,102,241,0.1))', color: '#8b5cf6', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Headset size={28} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Support Tickets</h2>
+                <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.9rem', margin: '0.2rem 0 0 0' }}>Manage and resolve issues reported by clinic owners.</p>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <div style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#059669', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontSize: '0.8rem', fontWeight: 700 }}>
-                {tickets.filter(t => t.status === 'resolved').length} Resolved
+              <div style={{ background: '#ffffff', border: '1px solid rgba(16,185,129,0.2)', color: '#059669', padding: '0.75rem 1.25rem', borderRadius: '1rem', fontSize: '0.9rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+                <CheckCircle size={18} /> {tickets.filter(t => t.status === 'resolved').length} Resolved
               </div>
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#dc2626', padding: '0.5rem 1rem', borderRadius: 'var(--radius-md)', fontSize: '0.8rem', fontWeight: 700 }}>
-                {tickets.filter(t => t.status === 'open').length} Open
+              <div style={{ background: '#ffffff', border: '1px solid rgba(239,68,68,0.2)', color: '#dc2626', padding: '0.75rem 1.25rem', borderRadius: '1rem', fontSize: '0.9rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '0.5rem', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+                <AlertTriangle size={18} /> {tickets.filter(t => t.status === 'open' || t.status === 'in_progress').length} Active
               </div>
             </div>
           </div>
 
           {tickets.length === 0 ? (
-            <div className="card" style={{ textAlign: 'center', padding: '5rem 2rem', color: 'var(--on-surface-variant)' }}>
-              <Headset size={64} style={{ marginBottom: '1.5rem', opacity: 0.1 }} />
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '0.5rem' }}>All Quiet Here</h3>
-              <p>No support tickets have been submitted yet.</p>
+            <div style={{ textAlign: 'center', padding: '6rem 2rem', background: '#fff', borderRadius: '1.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.02)' }}>
+              <Headset size={64} color="#e2e8f0" style={{ marginBottom: '1.5rem' }} />
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--on-surface)' }}>Inbox Zero 🎉</h3>
+              <p style={{ color: '#64748b', marginTop: '0.5rem' }}>No support tickets have been submitted yet. Everything is running smoothly!</p>
             </div>
           ) : (
-            <div className="table-wrapper card" style={{ padding: 0, borderRadius: '1.5rem', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-              <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th style={thStyle}>DATE & SOURCE</th>
-                    <th style={thStyle}>SUBJECT & DESCRIPTION</th>
-                    <th style={thStyle}>STATUS</th>
-                    <th style={thStyle}>ACTION</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {tickets.map((ticket, idx) => (
-                    <tr key={ticket.id} style={{ background: '#ffffff', borderBottom: idx === tickets.length - 1 ? 'none' : '1px solid #f1f5f9' }}>
-                      <td style={tdStyle}>
-                        <div style={{ fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.2rem' }}>
-                          {new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        </div>
-                        <div style={{ fontSize: '0.75rem', opacity: 0.7 }}>{ticket.clinicName}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--danger)', fontWeight: 500, marginTop: '0.25rem' }}>{ticket.userEmail}</div>
-                      </td>
-                      <td style={{ ...tdStyle, maxWidth: '400px' }}>
-                        <div style={{ fontWeight: 700, color: 'var(--on-surface)', marginBottom: '0.4rem' }}>{ticket.subject}</div>
-                        <div style={{ fontSize: '0.82rem', color: 'var(--on-surface-variant)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
-                          {ticket.description}
-                        </div>
-                      </td>
-                      <td style={tdStyle}>
-                        <div style={{ position: 'relative', display: 'inline-block' }}>
-                          <select 
-                            value={ticket.status} 
-                            onChange={(e) => handleUpdateTicketStatus(ticket.id, e.target.value as 'open' | 'in_progress' | 'resolved')}
-                            style={{
-                              padding: '0.45rem 2rem 0.45rem 1rem', borderRadius: 'var(--radius-full)', border: '1px solid transparent',
-                              fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', appearance: 'none',
-                              background: ticket.status === 'resolved' ? '#d1fae5' : ticket.status === 'in_progress' ? '#fef3c7' : '#fee2e2',
-                              color: ticket.status === 'resolved' ? '#059669' : ticket.status === 'in_progress' ? '#d97706' : '#dc2626',
-                              textTransform: 'uppercase', transition: 'all 0.2s'
-                            }}
-                          >
-                            <option value="open">Open</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="resolved">Resolved</option>
-                          </select>
-                          <ChevronDown size={14} style={{ position: 'absolute', right: '0.75rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: ticket.status === 'resolved' ? '#059669' : ticket.status === 'in_progress' ? '#d97706' : '#dc2626' }} />
-                        </div>
-                      </td>
-                      <td style={tdStyle}>
-                        {ticket.status !== 'resolved' && (
-                          <button 
-                            onClick={() => handleResolveTicket(ticket.id)}
-                            disabled={resolvingId === ticket.id}
-                            className="btn btn-sm"
-                            style={{ 
-                              background: '#059669', color: '#fff', 
-                              opacity: resolvingId === ticket.id ? 0.6 : 1,
-                              display: 'flex', alignItems: 'center', gap: '0.4rem'
-                            }}
-                          >
-                            {resolvingId === ticket.id ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                            Mark Resolved
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+              {tickets.map((ticket) => (
+                <div key={ticket.id} style={{ background: '#ffffff', borderRadius: '1.25rem', padding: '1.5rem 2rem', display: 'grid', gridTemplateColumns: '250px 1fr auto', gap: '2rem', alignItems: 'center', boxShadow: '0 4px 20px rgba(0,0,0,0.02)', border: ticket.status === 'resolved' ? '1px solid transparent' : '1px solid rgba(139,92,246,0.1)', transition: 'all 0.2s', position: 'relative', overflow: 'hidden' }}>
+                  {ticket.status !== 'resolved' && <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px', background: 'linear-gradient(to bottom, #8b5cf6, #6366f1)' }} />}
+                  
+                  {/* Column 1: Info */}
+                  <div>
+                    <div style={{ fontWeight: 800, color: 'var(--on-surface)', fontSize: '0.95rem', marginBottom: '0.3rem' }}>
+                      {new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 600 }}>{ticket.clinicName}</div>
+                    <div style={{ fontSize: '0.8rem', color: '#8b5cf6', fontWeight: 600, marginTop: '0.2rem' }}>{ticket.userEmail}</div>
+                  </div>
+
+                  {/* Column 2: Subject & Description */}
+                  <div>
+                    <h4 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--on-surface)', margin: '0 0 0.5rem 0' }}>{ticket.subject}</h4>
+                    <p style={{ fontSize: '0.9rem', color: '#64748b', lineHeight: 1.6, margin: 0, whiteSpace: 'pre-wrap' }}>{ticket.description}</p>
+                  </div>
+
+                  {/* Column 3: Actions */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.75rem' }}>
+                    <div style={{ position: 'relative' }}>
+                      <select 
+                        value={ticket.status} 
+                        onChange={(e) => handleUpdateTicketStatus(ticket.id, e.target.value as 'open' | 'in_progress' | 'resolved')}
+                        style={{
+                          padding: '0.6rem 2.5rem 0.6rem 1.25rem', borderRadius: '2rem', border: 'none',
+                          fontSize: '0.8rem', fontWeight: 800, cursor: 'pointer', appearance: 'none',
+                          background: ticket.status === 'resolved' ? '#d1fae5' : ticket.status === 'in_progress' ? '#fef3c7' : '#fee2e2',
+                          color: ticket.status === 'resolved' ? '#059669' : ticket.status === 'in_progress' ? '#d97706' : '#dc2626',
+                          textTransform: 'uppercase', letterSpacing: '0.05em', outline: 'none'
+                        }}
+                      >
+                        <option value="open">Open</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="resolved">Resolved</option>
+                      </select>
+                      <ChevronDown size={14} style={{ position: 'absolute', right: '1rem', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: ticket.status === 'resolved' ? '#059669' : ticket.status === 'in_progress' ? '#d97706' : '#dc2626' }} />
+                    </div>
+
+                    {ticket.status !== 'resolved' && (
+                      <button 
+                        onClick={() => handleResolveTicket(ticket.id)}
+                        disabled={resolvingId === ticket.id}
+                        style={{ 
+                          background: '#fff', border: '1px solid #e2e8f0', color: '#059669', 
+                          padding: '0.5rem 1.25rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 700,
+                          display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'pointer', transition: 'all 0.2s',
+                          opacity: resolvingId === ticket.id ? 0.6 : 1
+                        }}
+                      >
+                        {resolvingId === ticket.id ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+                        Mark Resolved
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
 
       {/* ═══════════════════════════════════
-          TAB: SETTINGS (placeholder)
+          TAB: SETTINGS
          ═══════════════════════════════════ */}
       {activeTab === 'settings' && (
-        <div style={{ maxWidth: '800px', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-          <div style={{ marginBottom: '0.5rem' }}>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', letterSpacing: '-0.02em' }}>Platform Configuration</h2>
-            <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.88rem' }}>Manage global rules and contact information for all clinics.</p>
+        <div className="animate-slide-up" style={{ maxWidth: '1000px', display: 'flex', flexDirection: 'column', gap: '2rem', animation: 'fadeIn 0.5s ease' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '1rem' }}>
+            <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(14,165,233,0.1), rgba(56,189,248,0.1))', color: '#0ea5e9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Settings size={28} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Platform Configuration</h2>
+              <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.9rem', margin: '0.2rem 0 0 0' }}>Manage global rules and contact information for all clinics.</p>
+            </div>
           </div>
 
-          <div className="grid grid-2 gap-6">
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '1.5rem' }}>
             {/* Free Trial Toggle Card */}
-            <div className="card" style={{ padding: '2rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div style={{ background: '#ffffff', borderRadius: '1.5rem', padding: '2.5rem', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', boxShadow: '0 10px 40px rgba(0,0,0,0.03)' }}>
               <div>
-                <div style={{ 
-                  width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(14, 165, 233, 0.1)', 
-                  color: '#0ea5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.25rem'
-                }}>
-                  <Zap size={20} />
+                <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: 'rgba(14, 165, 233, 0.1)', color: '#0ea5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
+                  <Zap size={24} />
                 </div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '0.5rem' }}>Growth Engine</h3>
-                <p style={{ fontSize: '0.82rem', color: '#64748b', lineHeight: 1.5, marginBottom: '1.5rem' }}>
-                  Enable automatic free trials for all new users to increase conversion rates.
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--on-surface)', marginBottom: '0.5rem', margin: 0 }}>Growth Engine</h3>
+                <p style={{ fontSize: '0.9rem', color: '#64748b', lineHeight: 1.6, marginBottom: '2rem' }}>
+                  Enable automatic free trials for all new users. This helps increase signup conversion rates and allows clinics to test features.
                 </p>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '1.5rem', borderTop: '1px solid rgba(0,0,0,0.03)' }}>
-                <span style={{ fontSize: '0.85rem', fontWeight: 700, color: trialEnabled ? '#059669' : '#64748b' }}>
-                  {trialEnabled ? 'ACTIVE — 7 DAYS' : 'INACTIVE'}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingTop: '1.5rem', borderTop: '1px solid rgba(0,0,0,0.05)' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: trialEnabled ? '#059669' : '#94a3b8' }}>
+                  {trialEnabled ? 'Active (7 Days)' : 'Disabled'}
                 </span>
                 <button
                   onClick={() => setTrialEnabled(!trialEnabled)}
                   style={{
-                    width: '52px', height: '28px', borderRadius: '14px', border: 'none', cursor: 'pointer',
+                    width: '64px', height: '34px', borderRadius: '17px', border: 'none', cursor: 'pointer',
                     background: trialEnabled ? 'linear-gradient(135deg, #0ea5e9, #38bdf8)' : 'rgba(148, 163, 184, 0.2)',
                     position: 'relative', transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', flexShrink: 0,
-                    boxShadow: trialEnabled ? '0 4px 12px rgba(14, 165, 233, 0.25)' : 'none'
+                    boxShadow: trialEnabled ? '0 4px 15px rgba(14, 165, 233, 0.3)' : 'none'
                   }}
                 >
                   <div style={{
-                    position: 'absolute', top: '4px', left: trialEnabled ? '28px' : '4px',
-                    width: '20px', height: '20px', borderRadius: '50%', background: 'white',
+                    position: 'absolute', top: '4px', left: trialEnabled ? '34px' : '4px',
+                    width: '26px', height: '26px', borderRadius: '50%', background: 'white',
                     transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)', boxShadow: '0 2px 5px rgba(0,0,0,0.2)'
                   }} />
                 </button>
               </div>
             </div>
 
-            {/* Trial Settings Info Card */}
-            <div className="card" style={{ padding: '2rem', background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', border: '1px solid rgba(0,0,0,0.02)' }}>
-              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '1rem' }}>Admin WhatsApp</h3>
-              <p style={{ fontSize: '0.82rem', color: '#64748b', lineHeight: 1.5, marginBottom: '1.5rem' }}>
-                This phone number and message will be displayed to users when their subscription expires.
+            {/* Admin Info Card */}
+            <div style={{ background: 'linear-gradient(135deg, #f8fafc, #f1f5f9)', borderRadius: '1.5rem', padding: '2.5rem', border: '1px solid rgba(0,0,0,0.03)', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
+                <MessageCircle size={24} />
+              </div>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--on-surface)', margin: '0 0 0.5rem 0' }}>Admin WhatsApp</h3>
+              <p style={{ fontSize: '0.9rem', color: '#64748b', lineHeight: 1.6, marginBottom: '1.5rem' }}>
+                This is the primary contact method displayed to clinics when they need support or their subscription is expiring.
               </p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', color: '#0ea5e9' }}>
-                <MessageCircle size={18} />
-                <span style={{ fontSize: '0.9rem', fontWeight: 600 }}>{waPhone || 'Not set'}</span>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '0.75rem', background: '#fff', padding: '1rem 1.5rem', borderRadius: '1rem', color: '#10b981', boxShadow: '0 4px 15px rgba(0,0,0,0.02)' }}>
+                <Phone size={18} />
+                <span style={{ fontSize: '1rem', fontWeight: 800, letterSpacing: '0.02em' }}>{waPhone || 'Not Configured'}</span>
               </div>
             </div>
           </div>
 
-          {/* Detailed WhatsApp Card */}
-          <div className="card" style={{ padding: '2.5rem' }}>
-            <div style={{ display: 'flex', gap: '2.5rem' }}>
-              <div style={{ flex: 1 }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ color: '#64748b' }}>Support Contact Number</label>
+          {/* Form Configuration Area */}
+          <div style={{ background: '#ffffff', borderRadius: '1.5rem', padding: '2.5rem', boxShadow: '0 10px 40px rgba(0,0,0,0.03)' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--on-surface)', marginBottom: '1.5rem' }}>Communication Settings</h3>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '2rem' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Support Contact Number</label>
+                <div style={{ position: 'relative' }}>
+                  <Phone size={18} style={{ position: 'absolute', left: '1.25rem', top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
                   <input
                     value={waPhone}
                     onChange={e => setWaPhone(e.target.value)}
-                    placeholder="919876543210"
+                    placeholder="+91 9876543210"
                     style={{
-                      width: '100%', padding: '0.85rem 1.25rem', marginTop: '0.4rem',
-                      borderRadius: '0.85rem', border: '1px solid rgba(0,0,0,0.08)',
-                      background: '#f8fafc', fontSize: '0.95rem', fontWeight: 500,
-                      color: 'var(--on-surface)', outline: 'none', transition: 'all 0.2s'
+                      width: '100%', padding: '1rem 1.25rem 1rem 3rem', borderRadius: '1rem', border: 'none',
+                      background: 'var(--surface-container-lowest)', fontSize: '1rem', fontWeight: 600,
+                      color: 'var(--on-surface)', outline: 'none', transition: 'all 0.2s', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)'
                     }}
                   />
                 </div>
               </div>
-              <div style={{ flex: 1.5 }}>
-                <div className="form-group">
-                  <label className="form-label" style={{ color: '#64748b' }}>Renewal Template Message</label>
-                  <textarea
-                    value={waMessage}
-                    onChange={e => setWaMessage(e.target.value)}
-                    rows={1}
-                    placeholder="Hi, I would like to renew my SmileSync subscription."
-                    style={{
-                      width: '100%', padding: '0.85rem 1.25rem', marginTop: '0.4rem',
-                      borderRadius: '0.85rem', border: '1px solid rgba(0,0,0,0.08)',
-                      background: '#f8fafc', fontSize: '0.95rem', fontWeight: 500,
-                      color: 'var(--on-surface)', outline: 'none', transition: 'all 0.2s',
-                      minHeight: '48px', resize: 'none'
-                    }}
-                  />
-                </div>
+              
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>Renewal Template Message</label>
+                <textarea
+                  value={waMessage}
+                  onChange={e => setWaMessage(e.target.value)}
+                  rows={2}
+                  placeholder="Hi, I would like to renew my SmileSync subscription."
+                  style={{
+                    width: '100%', padding: '1rem 1.25rem', borderRadius: '1rem', border: 'none',
+                    background: 'var(--surface-container-lowest)', fontSize: '0.95rem', fontWeight: 500,
+                    color: 'var(--on-surface)', outline: 'none', transition: 'all 0.2s',
+                    minHeight: '48px', resize: 'vertical', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)', lineHeight: 1.5
+                  }}
+                />
               </div>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2rem', paddingTop: '2rem', borderTop: '1px solid rgba(0,0,0,0.03)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '2.5rem', paddingTop: '2rem', borderTop: '1px solid rgba(0,0,0,0.05)' }}>
               <div>
                 {settingsMsg && (
                   <div style={{
-                    color: settingsMsg.type === 'success' ? '#059669' : '#dc2626',
-                    fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem'
+                    color: settingsMsg.type === 'success' ? '#059669' : '#dc2626', background: settingsMsg.type === 'success' ? '#d1fae5' : '#fee2e2',
+                    padding: '0.5rem 1rem', borderRadius: '2rem', fontSize: '0.85rem', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '0.5rem', animation: 'fadeIn 0.3s ease'
                   }}>
                     {settingsMsg.type === 'success' ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
                     {settingsMsg.text}
@@ -1212,15 +1359,13 @@ export default function AdminPage() {
               <button
                 onClick={handleSavePlatformSettings}
                 disabled={settingsSaving}
-                className="btn btn-whatsapp"
                 style={{ 
-                  padding: '0.75rem 2rem', 
-                  borderRadius: '1rem',
-                  fontSize: '0.9rem',
-                  boxShadow: '0 10px 25px rgba(37, 211, 102, 0.25)'
+                  padding: '1rem 2.5rem', borderRadius: '2rem', border: 'none', background: '#10b981', color: 'white',
+                  fontSize: '0.95rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.5rem',
+                  boxShadow: '0 8px 20px rgba(16, 185, 129, 0.3)', transition: 'all 0.2s'
                 }}
               >
-                <MessageCircle size={18} /> {settingsSaving ? 'Syncing...' : 'Update Settings'}
+                {settingsSaving ? <><Loader2 size={18} className="animate-spin" /> Syncing...</> : <><CheckCircle size={18} /> Update Settings</>}
               </button>
             </div>
           </div>
@@ -1232,6 +1377,275 @@ export default function AdminPage() {
       {/* ═══════════════════════════════════
           MODAL: Assign Plan to User
          ═══════════════════════════════════ */}
+      {/* ═══════════════════════════════════
+          TAB: BROADCASTS
+         ═══════════════════════════════════ */}
+      {activeTab === 'broadcasts' && (
+        <div className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(99,102,241,0.1), rgba(168,85,247,0.1))', color: '#6366f1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <MessageCircle size={28} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Broadcast Announcements</h2>
+                <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.9rem', margin: '0.2rem 0 0 0' }}>Send in-app notifications to selected groups.</p>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 350px', gap: '2rem' }}>
+            {/* Composer */}
+            <div className="card" style={{ padding: '2rem', borderRadius: '1.5rem', background: '#fff', border: '1px solid #f1f5f9' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--on-surface)', marginBottom: '1.5rem' }}>Compose Message</h3>
+              
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label" style={{ fontWeight: 700 }}>Target Audience</label>
+                <select 
+                  value={broadcastAudience} 
+                  onChange={e => setBroadcastAudience(e.target.value)}
+                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', fontSize: '0.95rem' }}
+                >
+                  <option value="All">All Users</option>
+                  <option value="Active">Active Subscription</option>
+                  <option value="Trial">Trial Users</option>
+                  <option value="Expiring">Expiring Soon (≤ 7 days)</option>
+                  <option value="Expired">Expired Users</option>
+                </select>
+                <div style={{ marginTop: '0.5rem', fontSize: '0.8rem', color: '#64748b' }}>
+                  This will send an in-app notification to the selected clinics.
+                </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label" style={{ fontWeight: 700 }}>Notification Title</label>
+                <input 
+                  type="text" 
+                  value={broadcastTitle}
+                  onChange={e => setBroadcastTitle(e.target.value)}
+                  placeholder="e.g. System Maintenance on Sunday"
+                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', fontSize: '0.95rem' }}
+                />
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '1.5rem' }}>
+                <label className="form-label" style={{ fontWeight: 700 }}>Message</label>
+                <textarea 
+                  value={broadcastMessage}
+                  onChange={e => setBroadcastMessage(e.target.value)}
+                  placeholder="Write your announcement here..."
+                  rows={5}
+                  style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', fontSize: '0.95rem', resize: 'vertical' }}
+                />
+              </div>
+
+              <button 
+                onClick={handleSendBroadcast}
+                disabled={sendingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()}
+                style={{ 
+                  width: '100%', padding: '1rem', borderRadius: '1rem', border: 'none', background: '#6366f1', color: 'white',
+                  fontSize: '0.95rem', fontWeight: 800, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.5rem',
+                  opacity: (sendingBroadcast || !broadcastTitle.trim() || !broadcastMessage.trim()) ? 0.6 : 1
+                }}
+              >
+                {sendingBroadcast ? <Loader2 size={18} className="animate-spin" /> : <MessageCircle size={18} />}
+                Send Broadcast
+              </button>
+            </div>
+
+            {/* History */}
+            <div className="card" style={{ padding: '1.5rem', borderRadius: '1.5rem', background: '#fff', border: '1px solid #f1f5f9', maxHeight: '600px', overflowY: 'auto' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--on-surface)', marginBottom: '1rem' }}>Past Broadcasts</h3>
+              {broadcastHistory.length === 0 ? (
+                <div style={{ padding: '2rem 1rem', textAlign: 'center', color: '#94a3b8', fontSize: '0.9rem' }}>No broadcasts sent yet.</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {broadcastHistory.map(b => (
+                    <div key={b.id} style={{ padding: '1rem', borderRadius: '1rem', background: '#f8fafc', border: '1px solid #f1f5f9' }}>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', marginBottom: '0.3rem' }}>
+                        To: {b.targetGroup} ({b.recipientCount})
+                      </div>
+                      <div style={{ fontWeight: 800, fontSize: '0.95rem', color: 'var(--on-surface)', marginBottom: '0.3rem' }}>{b.title}</div>
+                      <div style={{ fontSize: '0.85rem', color: '#64748b', marginBottom: '0.5rem', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.message}</div>
+                      <div style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                        Sent {new Date(b.sentAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════
+          TAB: PAYMENTS
+         ═══════════════════════════════════ */}
+      {activeTab === 'payments' && (
+        <div className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(5,150,105,0.1), rgba(16,185,129,0.1))', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CreditCard size={28} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Payment Records</h2>
+                <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.9rem', margin: '0.2rem 0 0 0' }}>Proofs of payment (UPI/Cash) linked to subscriptions.</p>
+              </div>
+            </div>
+            <div style={{ background: '#f0fdf4', color: '#059669', padding: '0.75rem 1.5rem', borderRadius: '1rem', fontWeight: 800, fontSize: '1.1rem' }}>
+              Total: ₹{payments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}
+            </div>
+          </div>
+
+          <div className="table-wrapper card" style={{ padding: 0, borderRadius: '1.5rem' }}>
+            <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={thStyle}>DATE</th>
+                  <th style={thStyle}>CLINIC / USER</th>
+                  <th style={thStyle}>PLAN</th>
+                  <th style={thStyle}>AMOUNT</th>
+                  <th style={thStyle}>METHOD & REF</th>
+                  <th style={thStyle}>RECORDED BY</th>
+                </tr>
+              </thead>
+              <tbody>
+                {payments.length === 0 ? (
+                  <tr><td colSpan={6} style={{ textAlign: 'center', padding: '3rem', color: '#94a3b8' }}>No payment records found.</td></tr>
+                ) : (
+                  payments.map(p => (
+                    <tr key={p.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                      <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.9rem', fontWeight: 600, color: '#475569' }}>
+                        {new Date(p.paidAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td style={{ padding: '1.25rem 1.5rem' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--on-surface)' }}>{p.clinicName}</div>
+                        <div style={{ fontSize: '0.8rem', color: '#64748b' }}>{p.email}</div>
+                      </td>
+                      <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.85rem', fontWeight: 600, color: '#64748b' }}>
+                        {p.planName}
+                      </td>
+                      <td style={{ padding: '1.25rem 1.5rem', fontSize: '1rem', fontWeight: 800, color: '#059669' }}>
+                        ₹{p.amount.toLocaleString()}
+                      </td>
+                      <td style={{ padding: '1.25rem 1.5rem' }}>
+                        <div style={{ display: 'inline-block', padding: '0.2rem 0.6rem', borderRadius: '1rem', background: '#f1f5f9', fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#475569' }}>
+                          {p.paymentMethod}
+                        </div>
+                        {p.transactionId && <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '0.3rem', fontFamily: 'monospace' }}>{p.transactionId}</div>}
+                      </td>
+                      <td style={{ padding: '1.25rem 1.5rem', fontSize: '0.8rem', color: '#94a3b8' }}>
+                        {p.recordedBy.split('@')[0]}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════
+          TAB: CALENDAR
+         ═══════════════════════════════════ */}
+      {activeTab === 'calendar' && (
+        <div className="animate-slide-up" style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <div style={{ width: '56px', height: '56px', borderRadius: '16px', background: 'linear-gradient(135deg, rgba(236,72,153,0.1), rgba(219,39,119,0.1))', color: '#db2777', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <CalendarDays size={28} />
+              </div>
+              <div>
+                <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--on-surface)', margin: 0 }}>Subscription Calendar</h2>
+                <p style={{ color: 'var(--on-surface-variant)', fontSize: '0.9rem', margin: '0.2rem 0 0 0' }}>Track upcoming renewals and expirations visually.</p>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+              <button 
+                onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}
+                style={{ padding: '0.5rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 700 }}
+              >
+                Previous
+              </button>
+              <div style={{ fontSize: '1.1rem', fontWeight: 800, minWidth: '150px', textAlign: 'center' }}>
+                {calendarMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+              </div>
+              <button 
+                onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}
+                style={{ padding: '0.5rem 1rem', borderRadius: '0.75rem', border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontWeight: 700 }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div className="card" style={{ padding: '2rem', borderRadius: '1.5rem', background: '#fff', border: '1px solid #f1f5f9' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1rem', marginBottom: '1rem' }}>
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
+                <div key={day} style={{ textAlign: 'center', fontWeight: 800, color: '#94a3b8', fontSize: '0.8rem', textTransform: 'uppercase' }}>{day}</div>
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '1rem' }}>
+              {(() => {
+                const year = calendarMonth.getFullYear();
+                const month = calendarMonth.getMonth();
+                const firstDay = new Date(year, month, 1).getDay();
+                const daysInMonth = new Date(year, month + 1, 0).getDate();
+                const cells = [];
+                
+                // Empty cells before 1st
+                for (let i = 0; i < firstDay; i++) {
+                  cells.push(<div key={`empty-${i}`} style={{ minHeight: '100px', background: '#f8fafc', borderRadius: '1rem', opacity: 0.5 }} />);
+                }
+                
+                // Days
+                for (let i = 1; i <= daysInMonth; i++) {
+                  const currentDateStr = new Date(year, month, i).toISOString().split('T')[0];
+                  
+                  // Find clinics expiring on this day
+                  const expiringClinics = stats.filter(s => {
+                    if (!s.subEndDate || s.subEndDate === '-') return false;
+                    try {
+                      return s.subEndDate.split('T')[0] === currentDateStr;
+                    } catch { return false; }
+                  });
+
+                  const isToday = new Date().toISOString().split('T')[0] === currentDateStr;
+
+                  cells.push(
+                    <div key={i} style={{ 
+                      minHeight: '120px', padding: '0.75rem', borderRadius: '1rem', 
+                      background: isToday ? '#fff0f6' : '#ffffff', 
+                      border: isToday ? '2px solid #fbcfe8' : '1px solid #f1f5f9',
+                      display: 'flex', flexDirection: 'column'
+                    }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 800, color: isToday ? '#db2777' : '#64748b', marginBottom: '0.5rem' }}>{i}</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', flex: 1, overflowY: 'auto' }}>
+                        {expiringClinics.map(s => (
+                          <div key={s.clinicId} style={{ 
+                            padding: '0.3rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700,
+                            background: s.subStatus === 'expired' ? '#fee2e2' : '#fef3c7',
+                            color: s.subStatus === 'expired' ? '#dc2626' : '#d97706',
+                            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis'
+                          }} title={s.name || s.clinicName}>
+                            {s.name || s.clinicName}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                }
+                return cells;
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {assignModal && (
         <div className="modal-overlay" onClick={() => setAssignModal(null)}>
           <div className="modal-content" style={{ width: '480px', maxWidth: '95vw' }} onClick={e => e.stopPropagation()}>
@@ -1303,6 +1717,43 @@ export default function AdminPage() {
                         ₹{plans.find(p => p.id === assignPlanId)?.yearlyPrice.toLocaleString() || 0}/yr
                       </div>
                     </button>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginTop: '1rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
+                  <h4 style={{ fontSize: '0.85rem', fontWeight: 700, color: '#475569', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    <CreditCard size={16} color="#059669" /> Payment Proof <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontWeight: 500 }}>(Optional)</span>
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>Amount Paid (₹)</label>
+                      <input 
+                        type="number" 
+                        style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                        value={assignPaymentAmount}
+                        onChange={e => setAssignPaymentAmount(e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>Payment Date</label>
+                      <input 
+                        type="date" 
+                        style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                        value={assignPaymentDate}
+                        onChange={e => setAssignPaymentDate(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <label className="form-label" style={{ fontSize: '0.75rem' }}>UPI Reference ID (or note)</label>
+                      <input 
+                        type="text" 
+                        style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', fontSize: '0.9rem' }}
+                        value={assignUpiRef}
+                        onChange={e => setAssignUpiRef(e.target.value)}
+                        placeholder="e.g. UPI1234567890"
+                      />
+                    </div>
                   </div>
                 </div>
 
