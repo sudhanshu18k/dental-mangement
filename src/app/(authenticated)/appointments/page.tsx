@@ -1382,53 +1382,114 @@ export default function AppointmentsPage() {
                 </select>
               </div>
 
-              {/* ── Smart Follow-Up Suggestion ── */}
-              {current.treatmentType && apptModal === 'add' && (() => {
-                const suggestion = getSmartFollowUpDate(current.treatmentType, current.date || new Date().toISOString().split('T')[0]);
-                if (!suggestion) return null;
-                return (
-                  <div style={{
-                    background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)',
-                    border: '1px solid #bbf7d0',
-                    borderRadius: '0.875rem',
-                    padding: '0.85rem 1rem',
-                    marginBottom: '1rem',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.75rem',
-                  }}>
-                    <div style={{
-                      width: '36px', height: '36px', borderRadius: '10px',
-                      background: '#dcfce7', display: 'flex', alignItems: 'center',
-                      justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0,
-                    }}>💡</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#166534', marginBottom: '0.15rem' }}>
-                        Smart Suggestion
+              {/* ── Follow-Up Options ── */}
+              {apptModal === 'add' && (
+                <div className="form-group">
+                  <label className="appt-label">Follow-up Schedule</label>
+                  
+                  {/* Smart Suggestion Card */}
+                  {current.treatmentType && (() => {
+                    const suggestion = getSmartFollowUpDate(current.treatmentType, current.date || new Date().toISOString().split('T')[0]);
+                    if (!suggestion) return null;
+                    return (
+                      <div style={{
+                        background: 'linear-gradient(135deg, #f0fdf4, #ecfdf5)',
+                        border: '1px solid #bbf7d0',
+                        borderRadius: '0.875rem',
+                        padding: '0.85rem 1rem',
+                        marginBottom: '0.75rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.75rem',
+                      }}>
+                        <div style={{
+                          width: '36px', height: '36px', borderRadius: '10px',
+                          background: '#dcfce7', display: 'flex', alignItems: 'center',
+                          justifyContent: 'center', fontSize: '1.1rem', flexShrink: 0,
+                        }}>💡</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.82rem', color: '#166534', marginBottom: '0.15rem' }}>
+                            Smart Suggestion
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: '#15803d', lineHeight: 1.4 }}>
+                            Best follow-up for <strong>{current.treatmentType}</strong>: <strong>{suggestion.label}</strong> — {new Date(suggestion.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+                          </div>
+                        </div>
+                        {current.tempFollowUpDate !== suggestion.date && (
+                          <button
+                            type="button"
+                            onClick={() => setCurrent({ ...current, tempFollowUpDate: suggestion.date })}
+                            style={{
+                              flexShrink: 0, background: '#16a34a', color: 'white',
+                              border: 'none', borderRadius: '0.5rem', padding: '0.4rem 0.75rem',
+                              fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer',
+                            }}
+                          >
+                            Apply
+                          </button>
+                        )}
+                        {current.tempFollowUpDate === suggestion.date && (
+                          <span style={{ flexShrink: 0, color: '#16a34a', fontWeight: 700, fontSize: '0.82rem' }}>✓ Applied</span>
+                        )}
                       </div>
-                      <div style={{ fontSize: '0.78rem', color: '#15803d', lineHeight: 1.4 }}>
-                        Best follow-up for <strong>{current.treatmentType}</strong>: <strong>{suggestion.label}</strong> — {new Date(suggestion.date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
-                      </div>
-                    </div>
-                    {current.tempFollowUpDate !== suggestion.date && (
-                      <button
-                        type="button"
-                        onClick={() => setCurrent({ ...current, tempFollowUpDate: suggestion.date })}
-                        style={{
-                          flexShrink: 0, background: '#16a34a', color: 'white',
-                          border: 'none', borderRadius: '0.5rem', padding: '0.4rem 0.75rem',
-                          fontSize: '0.72rem', fontWeight: 700, cursor: 'pointer',
-                        }}
-                      >
-                        Apply
-                      </button>
-                    )}
-                    {current.tempFollowUpDate === suggestion.date && (
-                      <span style={{ flexShrink: 0, color: '#16a34a', fontWeight: 700, fontSize: '0.82rem' }}>✓ Applied</span>
-                    )}
+                    );
+                  })()}
+
+                  {/* Quick Presets & Custom Date */}
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '0.75rem' }}>
+                    {[
+                      { label: 'None', days: -1 },
+                      { label: '3 Days', days: 3 },
+                      { label: '1 Week', days: 7 },
+                      { label: '2 Weeks', days: 14 },
+                      { label: '1 Month', days: 30 },
+                      { label: '3 Months', days: 90 },
+                      { label: '6 Months', days: 180 }
+                    ].map(preset => {
+                      const baseDate = current.date || new Date().toISOString().split('T')[0];
+                      let targetDate = '';
+                      if (preset.days >= 0) {
+                        const base = new Date(baseDate + 'T00:00:00');
+                        base.setDate(base.getDate() + preset.days);
+                        targetDate = base.toISOString().split('T')[0];
+                      }
+                      const isSelected = preset.days === -1 ? current.tempFollowUpDate === '' : current.tempFollowUpDate === targetDate;
+                      
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setCurrent({ ...current, tempFollowUpDate: targetDate })}
+                          style={{
+                            padding: '0.4rem 0.8rem',
+                            borderRadius: '0.5rem',
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            border: isSelected ? '1px solid var(--primary)' : '1px solid var(--outline-variant)',
+                            background: isSelected ? 'var(--info-bg, #f0f9ff)' : 'white',
+                            color: isSelected ? 'var(--primary)' : 'var(--on-surface-variant)',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s'
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
                   </div>
-                );
-              })()}
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--on-surface-variant)' }}>Custom:</span>
+                    <input 
+                      type="date" 
+                      className="form-input" 
+                      style={{ padding: '0.4rem 0.75rem', height: 'auto', fontSize: '0.8rem', flex: 1, maxWidth: '200px' }}
+                      value={current.tempFollowUpDate || ''} 
+                      onChange={e => setCurrent({ ...current, tempFollowUpDate: e.target.value })} 
+                    />
+                  </div>
+                </div>
+              )}
 
               {apptModal === 'add' && (
                 <>
@@ -1450,15 +1511,9 @@ export default function AppointmentsPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-2 gap-4">
-                    <div className="form-group">
-                      <label className="appt-label">Total Cost (₹)</label>
-                      <input type="number" min="0" className="form-input" placeholder="0" value={current.tempCost || ''} onChange={e => setCurrent({ ...current, tempCost: Number(e.target.value) })} />
-                    </div>
-                    <div className="form-group">
-                      <label className="appt-label">Follow-up Date</label>
-                      <input type="date" className="form-input" value={current.tempFollowUpDate || ''} onChange={e => setCurrent({ ...current, tempFollowUpDate: e.target.value })} />
-                    </div>
+                  <div className="form-group">
+                    <label className="appt-label">Total Cost (₹)</label>
+                    <input type="number" min="0" className="form-input" placeholder="0" value={current.tempCost || ''} onChange={e => setCurrent({ ...current, tempCost: Number(e.target.value) })} />
                   </div>
                 </>
               )}
